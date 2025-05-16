@@ -118,12 +118,13 @@ class Glitcher():
         data = b""
         count = 0
         while True:
-            count += 1
-            data += self.dev.read(1)
-            if data[-2:] == CRLF:
-                break
-            if count > MAX_BYTES:
+            c = self.dev.read(1)
+            if not c:
                 return "UART_TIMEOUT"
+            data += c
+            if data.endswith(terminator):
+                break
+
 
         # return read bytes without terminator
         return data.replace(terminator, b"")
