@@ -138,7 +138,7 @@ class Glitcher():
 
         # receive synchronized message
         resp = self.read_data(echo=False)
-
+        print("[DEBUG] sync response:", repr(resp))
         if resp != SYNCHRONIZED:
             return False
 
@@ -353,7 +353,7 @@ class Glitcher():
 
                     # read flash memory address
                     resp = self.send_target_command(READ_FLASH_CHECK, 1, True, b"\r\n")
-
+                    print("[DEBUG] Read command response:", resp)
                     if resp[0] == b"0":
                         # measure the time again
                         end_time = datetime.now()
