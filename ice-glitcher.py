@@ -164,7 +164,7 @@ class Glitcher():
 
     def read_command_response(self, response_count, echo=True, terminator=b"\r\n"):
         """Read command response from target device"""
-
+        print("[DEBUG] read_command_response start, expecting {} response(s)".format(response_count))
         result = []
         data = b""
 
@@ -201,7 +201,7 @@ class Glitcher():
         # add return code to result
         return_code = data.replace(CRLF, b"")
         result.append(return_code)
-
+        print("[DEBUG] Return code received:", return_code)
         # check return code and return immediately if it is not "CMD_SUCCESS"
         if return_code != b"0":
             return result
@@ -231,7 +231,7 @@ class Glitcher():
 
     def send_target_command(self, command, response_count=0, echo=True, terminator=b"\r\n"):
         """Send command to target device"""
-
+        print("[DEBUG] Sending command:", command)
         # send command
         cmd = command + b"\x0d"
         data = CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd
