@@ -149,6 +149,7 @@ class Glitcher():
 
         # read response, should be "OK"
         resp = self.read_data()
+        print("[DEBUG] Second response after Synchronized:", repr(resp))  # 加这一句
         if resp != OK:
             return False
 
