@@ -132,7 +132,7 @@ class Glitcher():
     def synchronize(self):
         """UART synchronization with auto baudrate detection"""
     
-        print("[DEBUG] sending '?'")
+        print("[DEBUG1] sending '?'")
         cmd = b"?"
         data = CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd
         self.dev.write(data)
