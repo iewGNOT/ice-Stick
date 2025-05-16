@@ -129,40 +129,38 @@ class Glitcher():
         # return read bytes without terminator
         return data.replace(terminator, b"")
 
-    def synchronize(self):
-        """UART synchronization with auto baudrate detection"""
-
-        # use auto baudrate detection
-        cmd = b"?"
-        data = CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd
-        self.dev.write(data)
-
-        # receive synchronized message
-        resp = self.read_data(echo=False)
-        print("[DEBUG] sync response:", repr(resp))
-        if resp != SYNCHRONIZED:
-            return False
-
-        # respond with "Synchronized"
-        cmd = SYNCHRONIZED + CRLF
-        data = CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd
-        self.dev.write(data)
-
-        # read response, should be "OK"
-        resp = self.read_data()
-        print("[DEBUG] Second response after Synchronized:", repr(resp))  # 加这一句
-        if resp != OK:
-            return False
-
-        # send crystal frequency (in kHz)
-        self.dev.write(CMD_PASSTHROUGH + b"\x07" + CRYSTAL_FREQ)
-
-        # read response, should be "OK"
-        resp = self.read_data()
-        if resp != OK:
-            return False
-
-        return True
+  def synchronize(self):
+      """UART synchronization with auto baudrate detection"""
+  
+      print("[DEBUG] sending '?'")
+      cmd = b"?"
+      data = CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd
+      self.dev.write(data)
+  
+      resp = self.read_data(echo=False)
+      print("[DEBUG] got sync response:", repr(resp))
+      if resp != SYNCHRONIZED:
+          return False
+  
+      print("[DEBUG] sending 'Synchronized\\r\\n'")
+      cmd = SYNCHRONIZED + CRLF
+      data = CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd
+      self.dev.write(data)
+  
+      resp = self.read_data()
+      print("[DEBUG] got 'OK' response:", repr(resp))
+      if resp != OK:
+          return False
+  
+      print("[DEBUG] sending clock")
+      self.dev.write(CMD_PASSTHROUGH + b"\x07" + CRYSTAL_FREQ)
+  
+      resp = self.read_data()
+      print("[DEBUG] got clock response:", repr(resp))
+      if resp != OK:
+          return False
+  
+      return True
 
     def read_command_response(self, response_count, echo=True, terminator=b"\r\n"):
         """Read command response from target device"""
