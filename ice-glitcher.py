@@ -132,33 +132,39 @@ class Glitcher():
     def synchronize(self):
         """UART synchronization with auto baudrate detection"""
     
-        print("[DEBUG1] sending '?'")
+        print("[DEBUG] sending '?'")
         cmd = b"?"
         data = CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd
         self.dev.write(data)
     
+        # 读取 bootloader 回复的 "Synchronized"
         resp = self.read_data(echo=False)
         print("[DEBUG] got sync response:", repr(resp))
         if resp != SYNCHRONIZED:
             return False
     
+        # 回复 Synchronized
         print("[DEBUG] sending 'Synchronized\\r\\n'")
         cmd = SYNCHRONIZED + CRLF
         data = CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd
         self.dev.write(data)
     
+        # 尝试读取 OK
         resp = self.read_data()
         print("[DEBUG] got 'OK' response:", repr(resp))
         if resp != OK:
-            return False
+            print("[WARN] No OK received, trying to continue anyway...")
+            return True  # 修改点：允许继续而不是失败
     
+        # 发送晶振频率
         print("[DEBUG] sending clock")
         self.dev.write(CMD_PASSTHROUGH + b"\x07" + CRYSTAL_FREQ)
     
         resp = self.read_data()
         print("[DEBUG] got clock response:", repr(resp))
         if resp != OK:
-            return False
+            print("[WARN] No OK after crystal freq, trying to continue anyway...")
+            return True  # 同样允许继续
     
         return True
 
