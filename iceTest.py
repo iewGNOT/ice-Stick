@@ -1,39 +1,47 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from pyftdi.gpio import GpioAsyncController
-from pylibftdi import Device, INTERFACE_B
-from struct import pack
-from codecs import decode
 from binascii import hexlify
-import time
+from codecs import decode
+from pylibftdi import Device, BitBangDevice
+from struct import pack
+from time import sleep
 
-# ========== 常量 ==========
+# === 常量定义 ===
 CRLF = b"\r\n"
-SYNCHRONIZED = b"Synchronized"
+SYNC = b"Synchronized"
 OK = b"OK"
 CRYSTAL_FREQ = b"10000" + CRLF
-DUMP_FILE = "flash_crp0.dump"
-CMD_PASSTHROUGH = b"\x00"  # FPGA passthrough command
+DUMP_FILE = "flash_auto_crp0.dump"
+CMD_PASSTHROUGH = b"\x00"
+MAX_ADDR = 0x8000  # 32KB
 
-# ========== 自动复位 ==========
-def auto_reset():
-    print("[*] Resetting target via FTDI CBUS0 ...")
-    gpio = GpioAsyncController()
-    gpio.configure('ftdi://::/1', direction=0x01)  # CBUS0 = output
-    gpio.write(0x01)  # 拉高（上电）
-    time.sleep(0.05)
-    gpio.write(0x00)  # 拉低（复位）
-    gpio.close()
-    print("[+] Reset complete.")
+# CBUS 控制定义（根据接线自定义）
+# 比如：CBUS0 控 VCC，CBUS1 控 RESET
+VCC_BIT = 0x01  # bit 0
+RST_BIT = 0x02  # bit 1
 
-# ========== 主类 ==========
-class FlashDumper:
+class AutoDumper:
     def __init__(self):
-        self.dev = Device(mode='b', interface_select=INTERFACE_B)
+        self.dev = Device(mode='b')
         self.dev.baudrate = 115200
+        self.gpio = BitBangDevice()
 
-    def read_data(self, terminator=b"\r\n", echo=True):
+    def power_cycle_into_bootloader(self):
+        print("[*] 自动复位并进入 bootloader...")
+        self.gpio.direction = 0xFF  # 所有 pin 输出
+
+        # 步骤：断电 + RESET 高 -> 供电 -> RESET 低
+        self.gpio.port = 0x00              # 全部拉低 = 断电
+        sleep(0.05)
+        self.gpio.port = VCC_BIT           # 上电但 RESET 高
+        sleep(0.05)
+        self.gpio.port = VCC_BIT | RST_BIT # RESET 拉低
+        sleep(0.1)
+        self.gpio.port = VCC_BIT           # RESET 释放
+        sleep(0.05)
+
+    def read_line(self, terminator=b"\r\n", echo=True):
         if echo:
             while self.dev.read(1) != b"\r":
                 pass
@@ -48,64 +56,58 @@ class FlashDumper:
         return data.replace(terminator, b"")
 
     def synchronize(self):
-        print("[*] Synchronizing ...")
+        print("[*] 与 MCU 同步...")
         self.dev.write(CMD_PASSTHROUGH + pack("B", 1) + b"?")
-        resp = self.read_data(echo=False)
-        print(f"[DEBUG] response 1: {resp}")
-        if resp != SYNCHRONIZED:
+        resp = self.read_line(echo=False)
+        if resp != SYNC:
+            print("[-] Sync failed:", resp)
             return False
 
-        self.dev.write(CMD_PASSTHROUGH + pack("B", len(SYNCHRONIZED + CRLF)) + SYNCHRONIZED + CRLF)
-        resp = self.read_data()
-        print(f"[DEBUG] response 2: {resp}")
-        if resp != OK:
+        self.dev.write(CMD_PASSTHROUGH + pack("B", len(SYNC + CRLF)) + SYNC + CRLF)
+        if self.read_line() != OK:
+            print("[!] No OK after SYNC")
             return False
 
         self.dev.write(CMD_PASSTHROUGH + pack("B", len(CRYSTAL_FREQ)) + CRYSTAL_FREQ)
-        resp = self.read_data()
-        print(f"[DEBUG] response 3: {resp}")
-        if resp != OK:
+        if self.read_line() != OK:
+            print("[!] No OK after crystal freq")
             return False
 
-        print("[+] Synchronized with bootloader.")
+        print("[+] 同步成功！")
         return True
 
-    def send_target_command(self, command, response_count=1):
-        cmd = command + b"\r"
+    def send_cmd(self, cmd_str, expect=1):
+        cmd = cmd_str + b"\r"
         self.dev.write(CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd)
-        resp = []
-        line = self.read_data()
-        resp.append(line)
-        if line != b"0":
+        resp = [self.read_line()]
+        if resp[0] != b"0":
             return resp
-        for _ in range(response_count):
-            line = self.read_data()
-            resp.append(line)
+        for _ in range(expect):
+            resp.append(self.read_line())
         return resp
 
     def dump_flash(self):
-        print("[*] Starting flash dump ...")
+        print("[*] 开始 dump flash...")
         with open(DUMP_FILE, "wb") as f:
-            for i in range(0x8000 // 32):
-                self.send_target_command(OK, 1)  # Dummy OK
+            for i in range(MAX_ADDR // 32):
                 addr = i * 32
-                cmd = f"R {addr} 32".encode("utf-8")
-                resp = self.send_target_command(cmd, 1)
+                self.send_cmd(OK, 1)  # dummy OK
+                resp = self.send_cmd(f"R {addr} 32".encode(), 1)
                 if resp[0] != b"0":
-                    print(f"[!] Failed at {hex(addr)}: {resp}")
+                    print(f"[!] 失败 @ {hex(addr)}: {resp}")
                     continue
                 data = b"begin 666 <data>\n" + resp[1] + b" \n \nend\n"
                 raw = decode(data, "uu")
                 f.write(raw)
                 print(f"[{hex(addr)}] {hexlify(raw).decode()}")
-        print(f"[+] Dump complete. Saved to {DUMP_FILE}")
+        print(f"[+] Dump 完成: {DUMP_FILE}")
 
-# ========== 主程序 ==========
-if __name__ == "__main__":
-    auto_reset()
-    time.sleep(0.2)  # 等待 MCU 上电
-    dumper = FlashDumper()
-    if dumper.synchronize():
-        dumper.dump_flash()
-    else:
-        print("[-] Bootloader sync failed. Check P0_1 and RESET timing.")
+    def run(self):
+        self.power_cycle_into_bootloader()
+        if self.synchronize():
+            self.dump_flash()
+        else:
+            print("[-] 无法与目标同步。确认是否在 Bootloader 模式！")
+
+if __name__ == '__main__':
+    AutoDumper().run()
