@@ -85,19 +85,10 @@ CMD_START_GLITCH    = b"\x04"
 
 
 class Glitcher():
-    """Simple iCEstick voltage glitcher"""
-
     def __init__(self, start_offset=0, end_offset=5000, offset_step=1,
             duration_step=1, start_duration=1, end_duration=30, retries=2):
-        """Initialize the glitcher"""
-
-        # set FTDI device for communication with iCEstick
         self.dev = Device(mode='b', interface_select=INTERFACE_B)
-
-        # set baudrate
         self.dev.baudrate = 115200
-
-        # set offset and duration steps
         self.offset_step = offset_step
         self.duration_step = duration_step
         self.start_offset = start_offset
@@ -107,16 +98,12 @@ class Glitcher():
         self.retries = retries
 
     def read_data(self, terminator=b"\r\n", echo=True):
-        """Read UART data"""
-
-        # if echo is on, read the echo first
         if echo:
             c = b"\x00"
             while c != b"\r":
                 c = self.dev.read(1)
 
         data = b""
-        count = 0
         while True:
             c = self.dev.read(1)
             if not c:
@@ -125,48 +112,41 @@ class Glitcher():
             if data.endswith(terminator):
                 break
 
-
-        # return read bytes without terminator
         return data.replace(terminator, b"")
 
     def synchronize(self):
-        """UART synchronization with auto baudrate detection"""
-    
-        print("[DEBUG] sending '?'")
-        cmd = b"?"
-        data = CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd
+        print("[DEBUG] sending '?' as 0x3F")
+        data = CMD_PASSTHROUGH + pack("B", 1) + b"\x3F"
         self.dev.write(data)
-    
-        # 读取 bootloader 回复的 "Synchronized"
+
         resp = self.read_data(echo=False)
         print("[DEBUG] got sync response:", repr(resp))
         if resp != SYNCHRONIZED:
             return False
-    
-        # 回复 Synchronized
+
         print("[DEBUG] sending 'Synchronized\\r\\n'")
         cmd = SYNCHRONIZED + CRLF
         data = CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd
         self.dev.write(data)
-    
-        # 尝试读取 OK
+
         resp = self.read_data()
         print("[DEBUG] got 'OK' response:", repr(resp))
         if resp != OK:
             print("[WARN] No OK received, trying to continue anyway...")
-            return True  # 修改点：允许继续而不是失败
-    
-        # 发送晶振频率
+            return True
+
         print("[DEBUG] sending clock")
         self.dev.write(CMD_PASSTHROUGH + b"\x07" + CRYSTAL_FREQ)
-    
+
         resp = self.read_data()
         print("[DEBUG] got clock response:", repr(resp))
         if resp != OK:
             print("[WARN] No OK after crystal freq, trying to continue anyway...")
-            return True  # 同样允许继续
-    
+            return True
+
         return True
+
+    # ... the rest of the code remains unchanged ...
 
     def read_command_response(self, response_count, echo=True, terminator=b"\r\n"):
         """Read command response from target device"""
