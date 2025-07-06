@@ -91,20 +91,19 @@ class Glitcher():
             duration_step=1, start_duration=1, end_duration=30, retries=2):
         """Initialize the glitcher"""
 
-        # set FTDI device for communication with iCEstick
-        self.dev = Device(mode='b', interface_select=INTERFACE_B, timeout=1)
+            self.dev = Device(mode='b', interface_select=INTERFACE_B)
+            self.dev.ftdi_fn.ftdi_read_data_timeout = 1000
+            self.dev.ftdi_fn.ftdi_write_data_timeout = 1000
+            self.dev.baudrate = 115200
+        
+            self.offset_step = offset_step
+            self.duration_step = duration_step
+            self.start_offset = start_offset
+            self.end_offset = end_offset
+            self.start_duration = start_duration
+            self.end_duration = end_duration
+            self.retries = retries
 
-        # set baudrate
-        self.dev.baudrate = 115200
-
-        # set offset and duration steps
-        self.offset_step = offset_step
-        self.duration_step = duration_step
-        self.start_offset = start_offset
-        self.end_offset = end_offset
-        self.start_duration = start_duration
-        self.end_duration = end_duration
-        self.retries = retries
 
     def read_data(self, terminator=b"\r\n", echo=True):
         """Read UART data"""
