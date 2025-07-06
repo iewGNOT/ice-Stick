@@ -84,8 +84,6 @@ CMD_SET_DURATION    = b"\x02"
 CMD_SET_OFFSET      = b"\x03"
 CMD_START_GLITCH    = b"\x04"
 
-UART_TIMEOUT = 5  # 单位：秒，可以根据设备反应速度调整
-
 
 class Glitcher():
     """Simple iCEstick voltage glitcher"""
