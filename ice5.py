@@ -64,6 +64,7 @@ from pylibftdi import Device, INTERFACE_B
 from struct import pack
 from sty import fg, ef
 from time import sleep
+import time
 
 # some definitions
 CRLF = b"\r\n"
@@ -108,9 +109,6 @@ class Glitcher():
         self.end_duration = end_duration
         self.retries = retries
 
-
-
-import time
 
     def read_data(self, terminator=b"\r\n", echo=True):
         """Read UART data with timeout"""
