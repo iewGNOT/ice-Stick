@@ -83,6 +83,8 @@ CMD_SET_DURATION    = b"\x02"
 CMD_SET_OFFSET      = b"\x03"
 CMD_START_GLITCH    = b"\x04"
 
+UART_TIMEOUT = 5  # 单位：秒，可以根据设备反应速度调整
+
 
 class Glitcher():
     """Simple iCEstick voltage glitcher"""
@@ -105,27 +107,28 @@ class Glitcher():
             self.retries = retries
 
 
-    def read_data(self, terminator=b"\r\n", echo=True):
-        """Read UART data"""
+import time
 
-        # if echo is on, read the echo first
+    def read_data(self, terminator=b"\r\n", echo=True):
+        """Read UART data with timeout"""
         if echo:
             c = b"\x00"
+            start = time.time()
             while c != b"\r":
                 c = self.dev.read(1)
-
+                if time.time() - start > UART_TIMEOUT:
+                    return b"UART_TIMEOUT"
+    
         data = b""
-        count = 0
+        start = time.time()
         while True:
-            count += 1
             data += self.dev.read(1)
             if data[-2:] == CRLF:
                 break
-            if count > MAX_BYTES:
-                return "UART_TIMEOUT"
-
-        # return read bytes without terminator
+            if time.time() - start > UART_TIMEOUT:
+                return b"UART_TIMEOUT"
         return data.replace(terminator, b"")
+
 
     def synchronize(self):
         """UART synchronization with auto baudrate detection"""
@@ -162,71 +165,50 @@ class Glitcher():
         return True
 
     def read_command_response(self, response_count, echo=True, terminator=b"\r\n"):
-        """Read command response from target device"""
-
+        """Read command response from target device with timeout"""
+    
         result = []
-        data = b""
-
-        # if echo is on, read the sent back ISP command before the actual response
-        count = 0
+    
+        # ---------- Echo部分 ----------
         if echo:
             c = b"\x00"
+            start = time.time()
             while c != b"\r":
-                count += 1
                 c = self.dev.read(1)
-
-                if count > MAX_BYTES:
-                    return "TIMEOUT"
-
-        # read return code
+                if time.time() - start > UART_TIMEOUT:
+                    return ["TIMEOUT"]
+    
+        # ---------- 读取返回码 ----------
         data = b""
-        old_len = 0
-        count = 0
+        start = time.time()
         while True:
             data += self.dev.read(1)
-
-            # if data[len(terminator) * -1:] == terminator:
             if data[-2:] == terminator:
                 break
-
-            if len(data) == old_len:
-                count += 1
-
-                if count > MAX_BYTES:
-                    return "TIMEOUT"
-            else:
-                old_len = len(data)
-
-        # add return code to result
+            if time.time() - start > UART_TIMEOUT:
+                return ["TIMEOUT"]
+    
         return_code = data.replace(CRLF, b"")
         result.append(return_code)
-
-        # check return code and return immediately if it is not "CMD_SUCCESS"
+    
+        # ---------- 如果返回码不是成功，直接返回 ----------
         if return_code != b"0":
             return result
-
-        # read specified number of responses
-        for i in range(response_count):
+    
+        # ---------- 读取响应数据 ----------
+        for _ in range(response_count):
             data = b""
-            count = 0
-            old_len = 0
+            start = time.time()
             while True:
                 data += self.dev.read(1)
                 if data[-2:] == terminator:
                     break
-
-                if len(data) == old_len:
-                    count += 1
-
-                    if count > MAX_BYTES:
-                        return "TIMEOUT"
-                else:
-                    old_len = len(data)
-
-            # add response to result
+                if time.time() - start > UART_TIMEOUT:
+                    return ["TIMEOUT"]
             result.append(data.replace(CRLF, b""))
-
+    
         return result
+
 
     def send_target_command(self, command, response_count=0, echo=True, terminator=b"\r\n"):
         """Send command to target device"""
