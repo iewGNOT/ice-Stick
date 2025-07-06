@@ -92,7 +92,7 @@ class Glitcher():
         """Initialize the glitcher"""
 
         # set FTDI device for communication with iCEstick
-        self.dev = Device(mode='b', interface_select=INTERFACE_B)
+        self.dev = Device(mode='b', interface_select=INTERFACE_B, timeout=1)
 
         # set baudrate
         self.dev.baudrate = 115200
