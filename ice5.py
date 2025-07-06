@@ -73,7 +73,7 @@ OK = b"OK"
 READ_FLASH_CHECK = b"R 0 4"
 CRYSTAL_FREQ = b"10000" + CRLF
 MAX_BYTES = 20
-UART_TIMEOUT = 5
+UART_TIMEOUT = 1
 DUMP_FILE = "memory.dump"
 RESULTS_FILE = "results.txt"
 
