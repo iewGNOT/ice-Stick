@@ -16,13 +16,13 @@ set_io  gled1           95
 
 # Pmod connector
 #set_io  pio1_02         78  # pin 1
-set_io  target_rx       78  # pin 1
+set_io  -pullup yes target_rx       78  # pin 1
 #set_io  pio1_03         79  # pin 2
-set_io  target_tx       79  # pin 1
+set_io  -pullup yes target_tx       79  # pin 1
 #set_io  pio1_04         80  # pin 3
-set_io  target_rst      80  # pin 3
+set_io  -pullup yes target_rst      80  # pin 3
 #set_io  pio1_05         81  # pin 4
-set_io  power_ctrl      81  # pin 4
+set_io  -pullup yes power_ctrl      81  # pin 4
 # set_io  pio1_06         87  # pin 7
 # set_io  pio1_07         88  # pin 8
 # set_io  pio1_08         90  # pin 9
@@ -54,8 +54,8 @@ set_io  power_ctrl      81  # pin 4
 #set_io  uart_dtr        3
 #set_io  uart_cts        4
 #set_io  uart_rts        7
-set_io  uart_tx         8
-set_io  uart_rx         9
+set_io  -pullup yes uart_tx         8
+set_io  -pullup yes uart_rx         9
 
 # SPI
 #set_io  spi_sck         70
@@ -68,4 +68,4 @@ set_io  uart_rx         9
 #set_io  creset          66
 
 # 12 MHz clock
-set_io  clk             21
+set_io  -pullup yes clk             21
