@@ -1,28 +1,24 @@
-// ─────────────────────────────────────────────────────────────────────────
-//  resetter.v  —  active‑low reset pulse (≈100 ms) -----------------------
-// ─────────────────────────────────────────────────────────────────────────
 module resetter (
-    input  wire clk,
-    input  wire enable,         // 同步高电平触发一次脉冲
-    output reg  active_low = 1  // 输出，0 = 复位有效
+    input wire clk,
+    input wire enable,
+    output reg reset_line
 );
-    parameter PULSE_CYCLES = 24'd21_900_000; // 根据 sys_clk 调节
 
-    reg [23:0] counter = 24'd0;
-    reg busy = 1'b0;
+    reg [23:0] counter = 0;
+    reg active = 0;
 
     always @(posedge clk) begin
         if (enable) begin
-            busy       <= 1'b1;
-            counter    <= 24'd0;
-            active_low <= 1'b0;       // 拉低开始复位
-        end else if (busy) begin
-            if (counter < PULSE_CYCLES) begin
-                counter <= counter + 1'b1;
-            end else begin
-                busy       <= 1'b0;
-                active_low <= 1'b1;   // 释放为高阻
-            end
+            counter     <= 0;
+            active      <= 1;
+            reset_line  <= 1'b0;  // 输出低电平开始复位
+        end else if (active && counter < 24'd21_900_000) begin
+            counter     <= counter + 1;
+            reset_line  <= 1'b0;  // 保持复位期间为低
+        end else begin
+            active      <= 0;
+            reset_line  <= 1'b1;  // 复位完成，释放为高电平
         end
     end
+
 endmodule
