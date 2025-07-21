@@ -255,23 +255,12 @@ class Glitcher():
                     self.set_glitch_offset(0)
                     self.set_glitch_duration(2_000_000)
                     self.start_glitch()
-                    ack1 = self.dev.read(1)
-                    if ack1 != b'\x55':
-                        print(fg.li_red + "[-] No ACK after first pulse" + fg.rs)
-                        continue
+                    sleep(0.2)
 
                     # 第二次 glitch：使用循环里定义的 offset, duration
                     self.set_glitch_offset(offset)
                     self.set_glitch_duration(duration)
                     self.start_glitch()
-                    ack2 = self.dev.read(1)          # 再等 0x55（或 0xAA，取决 FPGA 设置）
-                    if ack2 != b'\x55':
-                        print(fg.li_red + "[-] No ACK after second pulse" + fg.rs)
-                        continue
-                    # synchronize with target
-                    if not self.synchronize():
-                        print(fg.li_red + "[-] Error during synchronization" + fg.rs)
-                        continue
 
                     # read flash memory address
                     resp = self.send_target_command(READ_FLASH_CHECK, 1, True, b"\r\n")
