@@ -68,33 +68,33 @@ module top (
     );
 
     /* ── UART‑TX 用于 ACK ──── */
-    wire        tx_busy;
+    wire        tx_rdy;
     reg         tx_start = 1'b0;
-    reg  [7:0]  tx_data  = 8'h55;     // 固定发送 0x55
+    reg  [7:0]  tx_data  = 8'h55;
     wire        ack_line;
-
+    
     uart_tx UTX (
-        .clk   (sys_clk),
-        .rst   (!pll_locked),
-        .dout  (ack_line),
-        .data_in(tx_data),
-        .en    (tx_start),
-        .rdy   ( ),
-        .busy  (tx_busy)
+        .clk     (sys_clk),
+        .rst     (!pll_locked),
+        .dout    (ack_line),
+        .data_in (tx_data),
+        .en      (tx_start),
+        .rdy     (tx_rdy)
     );
-
-    /*  在 pulse_done 上升沿且 TX 空闲时触发发送          */
+    
+    /* pulse_done 上升沿且 TX 空闲时触发 */
     reg pulse_done_d = 1'b0;
     always @(posedge sys_clk) begin
         pulse_done_d <= pulse_done;
-        if (pulse_done & ~pulse_done_d & ~tx_busy)
+        if (pulse_done & ~pulse_done_d & tx_rdy)
             tx_start <= 1'b1;
         else
             tx_start <= 1'b0;
     end
+    
+    /* UART 线路复用：ack_line 覆盖透传 */
+    assign uart_tx = tx_start ? ack_line : target_rx;
 
-    /* ── UART 线路复用：ack_line 优先 ─── */
-    assign uart_tx = (tx_busy) ? ack_line : target_rx;
 
     /* ── LEDs ─────────────────────────── */
     assign gled1 = pll_locked;
