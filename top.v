@@ -15,15 +15,16 @@ module top (
     output wire power_ctrl
 );
 
+    /* ── PLL ───────────────── */
     wire sys_clk;
     wire pll_locked;
-
     pll my_pll (
         .clock_in (clk),
         .clock_out(sys_clk),
         .locked   (pll_locked)
     );
 
+    /* ── Command processor ─── */
     wire        tgt_reset_req;
     wire        start_ofs_cnt;
     wire        start_dur_cnt;
@@ -41,6 +42,7 @@ module top (
         .start_offset_counter(start_ofs_cnt)
     );
 
+    /* ── Reset & counters ──── */
     resetter RST (
         .clk        (sys_clk),
         .enable     (tgt_reset_req),
@@ -56,7 +58,6 @@ module top (
     );
 
     wire pulse_done;
-
     duration_counter DUR (
         .clk         (sys_clk),
         .reset       (tgt_reset_req),
@@ -66,8 +67,36 @@ module top (
         .pulse_done  (pulse_done)
     );
 
-    assign uart_tx = target_rx;
+    /* ── UART‑TX 用于 ACK ──── */
+    wire        tx_busy;
+    reg         tx_start = 1'b0;
+    reg  [7:0]  tx_data  = 8'h55;     // 固定发送 0x55
+    wire        ack_line;
 
+    uart_tx UTX (
+        .clk   (sys_clk),
+        .rst   (!pll_locked),
+        .dout  (ack_line),
+        .data_in(tx_data),
+        .en    (tx_start),
+        .rdy   ( ),
+        .busy  (tx_busy)
+    );
+
+    /*  在 pulse_done 上升沿且 TX 空闲时触发发送          */
+    reg pulse_done_d = 1'b0;
+    always @(posedge sys_clk) begin
+        pulse_done_d <= pulse_done;
+        if (pulse_done & ~pulse_done_d & ~tx_busy)
+            tx_start <= 1'b1;
+        else
+            tx_start <= 1'b0;
+    end
+
+    /* ── UART 线路复用：ack_line 优先 ─── */
+    assign uart_tx = (tx_busy) ? ack_line : target_rx;
+
+    /* ── LEDs ─────────────────────────── */
     assign gled1 = pll_locked;
     assign rled1 = 1'b0;
     assign rled2 = 1'b0;
