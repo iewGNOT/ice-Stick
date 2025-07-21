@@ -1,37 +1,20 @@
-/*
-  iCEstick Glitcher (top.v)
-
-  by Matthias Deeg (@matthiasdeeg, matthias.deeg@syss.de)
-
-  Simple voltage glitcher for a Lattice iCEstick Evaluation Kit
-
-  Based on and inspired by glitcher implementations
-  by Dmitry Nedospasov (@nedos) and Grazfather (@Grazfather)
-*/
-
 `default_nettype none
 
-module top
-(
-    input  wire clk,         // 12 MHz on iCEstick
-    input  wire uart_rx,     // FTDI‑TX → FPGA
-    output wire uart_tx,     // FPGA   → FTDI‑RX
-    input  wire target_rx,   // Target TX → FPGA
-    output wire target_tx,   // FPGA       → Target RX
-
-    output wire gled1,       // green LED
+module top (
+    input  wire clk,
+    input  wire uart_rx,
+    output wire uart_tx,
+    input  wire target_rx,
+    output wire target_tx,
+    output wire gled1,
     output wire rled1,
     output wire rled2,
     output wire rled3,
     output wire rled4,
-
-    output wire target_rst,  // active‑low reset pulse to target
-    output wire power_ctrl   // active‑low glitch MOSFET / VCC switch
+    output wire target_rst,
+    output wire power_ctrl
 );
 
-    /* ───────────────────────────────
-       1.  Clock PLL (default 100 MHz)
-       ─────────────────────────────── */
     wire sys_clk;
     wire pll_locked;
 
@@ -41,9 +24,6 @@ module top
         .locked   (pll_locked)
     );
 
-    /* ───────────────────────────────
-       2.  Command‑processor (USB‑UART)
-       ─────────────────────────────── */
     wire        tgt_reset_req;
     wire        start_ofs_cnt;
     wire        start_dur_cnt;
@@ -61,9 +41,6 @@ module top
         .start_offset_counter(start_ofs_cnt)
     );
 
-    /* ───────────────────────────────
-       3.  Reset & glitch timing chain
-       ─────────────────────────────── */
     resetter RST (
         .clk        (sys_clk),
         .enable     (tgt_reset_req),
@@ -78,23 +55,20 @@ module top
         .done  (start_dur_cnt)
     );
 
+    wire pulse_done;
+
     duration_counter DUR (
         .clk         (sys_clk),
         .reset       (tgt_reset_req),
         .enable      (start_dur_cnt),
         .din         (glitch_dur),
-        .power_select(power_ctrl)
+        .power_select(power_ctrl),
+        .pulse_done  (pulse_done)
     );
 
-    /* ───────────────────────────────
-       4.  UART relay: target → PC
-       ─────────────────────────────── */
     assign uart_tx = target_rx;
 
-    /* ───────────────────────────────
-       5.  LEDs (same as原版)
-       ─────────────────────────────── */
-    assign gled1 = pll_locked;  // green LED shows PLL lock
+    assign gled1 = pll_locked;
     assign rled1 = 1'b0;
     assign rled2 = 1'b0;
     assign rled3 = 1'b0;
