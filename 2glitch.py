@@ -242,37 +242,36 @@ class Glitcher():
         print(fg.li_white + "[*] Dumped memory written to '{}'".format(DUMP_FILE) + fg.rs)
 
     def run(self):
-        """Run the glitching process with two different glitches per attempt"""
-
         start_time = datetime.now()
-        CLK_PERIOD_S = 10e-9
-        MARGIN_S     = 1e-6
 
         for offset in range(self.start_offset, self.end_offset, self.offset_step):
             for duration in range(self.start_duration, self.end_duration, self.duration_step):
                 for attempt in range(self.retries):
-
                     print(fg.li_white +
                           f"[*] Test offset={offset}, duration={duration}, attempt={attempt+1}/{self.retries}"
                           + fg.rs)
 
-                    # --- 第一段 glitch 参数 ---
-                    off1 = 0
-                    dur1 = 2_000_000
+                    # --- 第一段 glitch ---
+                    off1, dur1 = 0, 2_000_000
                     self.set_glitch_offset(off1)
                     self.set_glitch_duration(dur1)
                     self.start_glitch()
-                    # 用第一段参数计算等待
-                    sleep((off1 + dur1) * CLK_PERIOD_S + MARGIN_S)
+                    # 等 FPGA 发回 0x55（pulse_done ACK）
+                    ack1 = self.dev.read(1)
+                    if ack1 != b'\x55':
+                        print(fg.li_red + "[-] First pulse no ACK" + fg.rs)
+                        continue
 
-                    # --- 第二段 glitch 参数 ---
-                    off2 = offset
-                    dur2 = duration
+                    # --- 第二段 glitch ---
+                    off2, dur2 = offset, duration
                     self.set_glitch_offset(off2)
                     self.set_glitch_duration(dur2)
                     self.start_glitch()
-                    # 用第二段参数计算等待
-                    sleep((off2 + dur2) * CLK_PERIOD_S + MARGIN_S)
+                    # 等 FPGA 发回 0xAA（第二段 ACK，可复用 0x55 也行）
+                    ack2 = self.dev.read(1)
+                    if ack2 != b'\xAA':
+                        print(fg.li_red + "[-] Second pulse no ACK" + fg.rs)
+                        continue
 
                     # 同步并检验
                     if not self.synchronize():
@@ -285,7 +284,6 @@ class Glitcher():
                         print(ef.bold + fg.green +
                               f"[*] Glitch success! offset={offset}, duration={duration}, elapsed={end_time - start_time}"
                               + fg.rs)
-
                         with open(RESULTS_FILE, "a") as f:
                             f.write(f"{offset},{duration},0,{resp[1].decode()}\n")
                         self.dump_memory()
