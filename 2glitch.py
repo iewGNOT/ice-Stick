@@ -251,16 +251,23 @@ class Glitcher():
                 for i in range(self.retries):
 
                     print(fg.li_white + "[*] Set glitch configuration ({},{})".format(offset, duration) + fg.rs)
-                    # 第一次 glitch：offset=0, duration=2_000_000
-                    self.set_glitch_offset(0)
-                    self.set_glitch_duration(2_000_000)
+                    off1 = 0
+                    dur1 = 2_000_000
+                    self.set_glitch_offset(off1)
+                    self.set_glitch_duration(dur1)
                     self.start_glitch()
-                    sleep(0.2)
+                    # 用第一段参数计算等待
+                    self.dev.write(CMD_PASSTHROUGH + b"\x00")
 
-                    # 第二次 glitch：使用循环里定义的 offset, duration
-                    self.set_glitch_offset(offset)
-                    self.set_glitch_duration(duration)
+
+                    # --- 第二段 glitch 参数 ---
+                    off2 = offset
+                    dur2 = duration
+                    self.set_glitch_offset(off2)
+                    self.set_glitch_duration(dur2)
                     self.start_glitch()
+                    # 用第二段参数计算等待
+                    self.dev.write(CMD_PASSTHROUGH + b"\x00")
 
                     # read flash memory address
                     resp = self.send_target_command(READ_FLASH_CHECK, 1, True, b"\r\n")
