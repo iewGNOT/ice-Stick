@@ -257,23 +257,20 @@ class Glitcher():
                           + fg.rs)
 
                     # --- 第一段 glitch 参数 ---
-                    off1 = 0
-                    dur1 = 2_000_000
-                    self.set_glitch_offset(off1)
-                    self.set_glitch_duration(dur1)
+                    # 第一段 glitch
+                    self.set_glitch_offset(0)
+                    self.set_glitch_duration(2_000_000)
                     self.start_glitch()
-                    # 用第一段参数计算等待
-                    self.dev.write(CMD_PASSTHROUGH + b"\x00")
-
-
-                    # --- 第二段 glitch 参数 ---
-                    off2 = offset
-                    dur2 = duration
-                    self.set_glitch_offset(off2)
-                    self.set_glitch_duration(dur2)
+                    self.dev.write(CMD_PASSTHROUGH + b"\x01\x00")
+                    self.dev.read(2)      # 扔掉 echo
+                    
+                    # 第二段 glitch
+                    self.set_glitch_offset(offset)
+                    self.set_glitch_duration(duration)
                     self.start_glitch()
-                    # 用第二段参数计算等待
-                    self.dev.write(CMD_PASSTHROUGH + b"\x00")
+                    self.dev.write(CMD_PASSTHROUGH + b"\x01\x00")
+                    self.dev.read(2)      # 扔掉 echo
+
 
 
                     # 同步并检验
