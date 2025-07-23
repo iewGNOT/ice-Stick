@@ -1,56 +1,3 @@
-#!/usr/bin/env python
-# -*- conding: utf-8 -*-
-
-"""
-  iCE, iCE Baby Glitcher
-
-  by Matthias Deeg (@matthiasdeeg, matthias.deeg@syss.de)
-
-  Command tool for a simple FPGA-based voltage glitcher using a
-  Lattice Semiconductor iCEstick Evaluation Kit or an iCEBreaker FPGA
-
-  This glitcher is based on and inspired by glitcher implementations
-  by Dmitry Nedospasov (@nedos) from Toothless Consulting and
-  Grazfather (@Grazfather)
-
-  References:
-    http://www.latticesemi.com/icestick
-    https://www.crowdsupply.com/1bitsquared/icebreaker-fpga
-    https://github.com/toothlessco/arty-glitcher
-    https://toothless.co/blog/bootloader-bypass-part1/
-    https://toothless.co/blog/bootloader-bypass-part2/
-    https://toothless.co/blog/bootloader-bypass-part3/
-    https://github.com/Grazfather/glitcher
-    http://grazfather.github.io/re/pwn/electronics/fpga/2019/12/08/Glitcher.html
-
-  Copyright 2020, Matthias Deeg, SySS GmbH
-
-  Redistribution and use in source and binary forms, with or without
-  modification, are permitted provided that the following conditions are met:
-
-  1. Redistributions of source code must retain the above copyright notice,
-     this list of conditions and the following disclaimer.
-
-  2. Redistributions in binary form must reproduce the above copyright notice,
-     this list of conditions and the following disclaimer in the documentation
-     and/or other materials provided with the distribution.
-
-  3. Neither the name of the copyright holder nor the names of its contributors
-     may be used to endorse or promote products derived from this software
-     without specific prior written permission.
-
-  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
-  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-  POSSIBILITY OF SUCH DAMAGE.
-"""
 
 __version__ = '0.5'
 __author__ = 'Matthias Deeg'
@@ -273,42 +220,6 @@ class Glitcher():
         print(fg.li_white + "[*] Dumped memory written to '{}'".format(DUMP_FILE) + fg.rs)
 
     def run(self):
-        """Run the glitching process with the current configuration"""
-
-        # # reset target
-        # self.reset_target()
-        #
-        # # read and show the UID of the target device
-        # print(fg.li_white + "[*] Read target device UID" + fg.rs)
-        # resp = self.send_target_command(b"N", 4, True, b"\r\n")
-        #
-        # if resp[0] == b"0" and len(resp) == 5:
-        #     uid = "{} {} {} {}".format(resp[4].decode("ascii"), resp[3].decode("ascii"), resp[2].decode("ascii"), resp[1].decode("ascii"))
-        # else:
-        #     uid = "<unknown>"
-        #     print(fg.li_red + "[-] Could not read target device UID" + fg.rs)
-        #
-        # # read part identification number
-        # print(fg.li_white + "[*] Read target device part ID" + fg.rs)
-        # resp = self.send_target_command(b"J", 1, True, b"\r\n")
-        #
-        # if resp[0] == b"0":
-        #     part_id = "{}".format(resp[1].decode("ascii"))
-        # else:
-        #     part_id = "<unknown>"
-        #     print(fg.li_red + "[-] Could not read target part ID" + fg.rs)
-        #
-        # # show target device info
-        # print(fg.li_white + "[*] Target device info:\n" +
-        #         "    UID:                        {}\n".format(uid) +
-        #         "    Part identification number: {}".format(part_id))
-        #
-        # print(fg.li_white + "[*] Press <ENTER> to start the glitching process" + fg.rs)
-        # input()
-
-        # measure the time
-        start_time = datetime.now()
-
         for offset in range(self.start_offset, self.end_offset, self.offset_step):
             # duration in 10 ns increments
             for duration in range(self.start_duration, self.end_duration, self.duration_step):
