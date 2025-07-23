@@ -263,7 +263,8 @@ class Glitcher():
                     self.set_glitch_duration(dur1)
                     self.start_glitch()
                     # 用第一段参数计算等待
-                    sleep((off1 + dur1) * CLK_PERIOD_S + MARGIN_S)
+                    self.dev.write(CMD_PASSTHROUGH + b"\x00")
+
 
                     # --- 第二段 glitch 参数 ---
                     off2 = offset
@@ -272,7 +273,8 @@ class Glitcher():
                     self.set_glitch_duration(dur2)
                     self.start_glitch()
                     # 用第二段参数计算等待
-                    sleep((off2 + dur2) * CLK_PERIOD_S + MARGIN_S)
+                    self.dev.write(CMD_PASSTHROUGH + b"\x00")
+
 
                     # 同步并检验
                     if not self.synchronize():
