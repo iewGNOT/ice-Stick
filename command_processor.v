@@ -1,3 +1,6 @@
+/1
+
+
 /*
   iCEBreaker Glitcher (command_processor.v)
  
@@ -153,14 +156,6 @@ module command_processor(
                         RESET:
                         begin
                             target_reset <= 1'b1;
-                            
-                            if (glitch_trigger)
-                            begin
-                                // start offset counter to start glitching process
-                                start_offset_counter <= 1'b1;
-                                glitch_trigger <= 1'b0;
-                            end
-
                         end
                             
                         // SET DURATION command
