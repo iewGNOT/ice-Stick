@@ -1,25 +1,19 @@
-module resetter (
-    input wire clk,
-    input wire enable,
-    output reg reset_line
+module resetter #(
+    parameter integer PULSE_CYCLES = 5_000_000  // 50 ms @ 100 MHz
+)(
+    input  wire clk,
+    input  wire enable,
+    output reg  reset_line,   // 低有效：0=复位中 (接芯片 nRESET)
+    output reg  wide_glitch   // 高有效：1=复位中 (并到 power_ctrl)
 );
-
-    reg [23:0] counter = 0;
-    reg active = 0;
-
+    reg [31:0] cnt = 0;
     always @(posedge clk) begin
         if (enable) begin
-            counter <= 0;
-            active <= 1;
-        end else if (active && counter < 24'd21_900_000) begin
-            counter <= counter + 1;
-        end else begin
-            active <= 0;
+            cnt <= PULSE_CYCLES;
+        end else if (cnt != 0) begin
+            cnt <= cnt - 1'b1;
         end
+        reset_line <= (cnt != 0) ? 1'b0 : 1'b1;  // nRESET 低有效
+        wide_glitch <= (cnt != 0) ? 1'b1 : 1'b0; // power_ctrl 高有效
     end
-
-    always @(*) begin
-        reset_line = active;
-    end
-
 endmodule
