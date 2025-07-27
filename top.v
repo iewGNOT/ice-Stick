@@ -1,103 +1,113 @@
-/*
-  iCEstick Glitcher (top.v)
-
-  by Matthias Deeg (@matthiasdeeg, matthias.deeg@syss.de)
-
-  Simple voltage glitcher for a Lattice iCEstick Evaluation Kit
-
-  Based on and inspired by glitcher implementations
-  by Dmitry Nedospasov (@nedos) and Grazfather (@Grazfather)
-*/
-
 `default_nettype none
 
-module top
-(
-    input  wire clk,         // 12 MHz on iCEstick
-    input  wire uart_rx,     // FTDI‑TX → FPGA
-    output wire uart_tx,     // FPGA   → FTDI‑RX
-    input  wire target_rx,   // Target TX → FPGA
-    output wire target_tx,   // FPGA       → Target RX
-
-    output wire gled1,       // green LED
-    output wire rled1,
-    output wire rled2,
-    output wire rled3,
-    output wire rled4,
-
-    output wire target_rst,  // active‑low reset pulse to target
-    output wire power_ctrl   // active‑low glitch MOSFET / VCC switch
+module top (
+    input  wire clk,
+    input  wire uart_rx,
+    output wire uart_tx,
+    input  wire target_rx,
+    output wire target_tx,
+    output wire gled1,
+    output wire target_rst,
+    output wire power_ctrl
 );
 
-    /* ───────────────────────────────
-       1.  Clock PLL (default 100 MHz)
-       ─────────────────────────────── */
     wire sys_clk;
-    wire pll_locked;
+    wire locked;
+    wire target_reset;
+    wire start_duration_counter;
+    wire [31:0] glitch_duration;
+    wire [31:0] glitch_offset;
+    wire short_active;
+    wire wide_glitch;
+
+    assign uart_tx = target_rx;
+    assign gled1 = locked;
 
     pll my_pll (
-        .clock_in (clk),
-        .clock_out(sys_clk),
-        .locked   (pll_locked)
+        .clock_in  (clk),
+        .clock_out (sys_clk),
+        .locked    (locked)
     );
 
-    /* ───────────────────────────────
-       2.  Command‑processor (USB‑UART)
-       ─────────────────────────────── */
-    wire        tgt_reset_req;
-    wire        start_ofs_cnt;
-    wire        start_dur_cnt;
-    wire [31:0] glitch_ofs;
-    wire [31:0] glitch_dur;
+    wire uart_rx_gated;
 
-    command_processor CMD (
+    command_processor command_processor (
         .clk                 (sys_clk),
-        .rst                 (!pll_locked),
-        .din                 (uart_rx),
+        .din                 (uart_rx_gated),
+        .rst                 (!locked),
         .dout                (target_tx),
-        .target_reset        (tgt_reset_req),
-        .duration            (glitch_dur),
-        .offset              (glitch_ofs),
-        .start_offset_counter(start_ofs_cnt)
+        .target_reset        (target_reset),
+        .duration            (glitch_duration),
+        .offset              (glitch_offset),
+        .start_offset_counter()
     );
 
-    /* ───────────────────────────────
-       3.  Reset & glitch timing chain
-       ─────────────────────────────── */
-    resetter RST (
+    resetter resetter (
         .clk        (sys_clk),
-        .enable     (tgt_reset_req),
-        .reset_line (target_rst)
+        .enable     (target_reset),
+        .reset_line (target_rst),
+        .wide_glitch(wide_glitch)
     );
 
-    offset_counter OFS (
-        .clk   (sys_clk),
-        .reset (tgt_reset_req),
-        .enable(start_ofs_cnt),
-        .din   (glitch_ofs),
-        .done  (start_dur_cnt)
+    reg wg_d;
+    always @(posedge sys_clk) wg_d <= wide_glitch;
+    wire wg_fall =  wg_d & ~wide_glitch;
+    wire wg_rise = ~wg_d &  wide_glitch;
+
+    reg armed;
+    always @(posedge sys_clk) begin
+        if (wg_rise) armed <= 1'b1;
+        else if (wg_fall) armed <= 1'b0;
+    end
+
+    reg start_pulse;
+    always @(posedge sys_clk) begin
+        start_pulse <= 1'b0;
+        if (wg_fall && armed) start_pulse <= 1'b1;
+    end
+
+    wire counters_reset = target_reset | wide_glitch;
+
+    offset_counter offset_counter (
+        .clk    (sys_clk),
+        .reset  (counters_reset),
+        .enable (start_pulse),
+        .din    (glitch_offset),
+        .done   (start_duration_counter)
     );
 
-    duration_counter DUR (
+    duration_counter duration_counter (
         .clk         (sys_clk),
-        .reset       (tgt_reset_req),
-        .enable      (start_dur_cnt),
-        .din         (glitch_dur),
-        .power_select(power_ctrl)
+        .reset       (counters_reset),
+        .enable      (start_duration_counter),
+        .din         (glitch_duration),
+        .power_select(short_active)
     );
 
-    /* ───────────────────────────────
-       4.  UART relay: target → PC
-       ─────────────────────────────── */
-    assign uart_tx = target_rx;
+    assign power_ctrl = wide_glitch | short_active;
 
-    /* ───────────────────────────────
-       5.  LEDs (same as原版)
-       ─────────────────────────────── */
-    assign gled1 = pll_locked;  // green LED shows PLL lock
-    assign rled1 = 1'b0;
-    assign rled2 = 1'b0;
-    assign rled3 = 1'b0;
-    assign rled4 = 1'b0;
+    localparam integer HS_DELAY_CYCLES = 100000;
+    reg        hs_hold;
+    reg        hs_pending;
+    reg [31:0] hs_cnt;
+
+    always @(posedge sys_clk) begin
+        if (wg_rise) begin
+            hs_hold    <= 1'b1;
+            hs_pending <= 1'b1;
+            hs_cnt     <= HS_DELAY_CYCLES;
+        end else if (hs_pending) begin
+            if (wide_glitch || short_active) begin
+                hs_cnt <= HS_DELAY_CYCLES;
+            end else if (hs_cnt != 0) begin
+                hs_cnt <= hs_cnt - 1'b1;
+            end else begin
+                hs_hold    <= 1'b0;
+                hs_pending <= 1'b0;
+            end
+        end
+    end
+
+    assign uart_rx_gated = hs_hold ? 1'b1 : uart_rx;
 
 endmodule
