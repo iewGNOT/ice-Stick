@@ -1,3 +1,5 @@
+/1
+
 module resetter #(
     parameter integer PULSE_CYCLES = 5_000_000  // 50 ms @ 100 MHz
 )(
