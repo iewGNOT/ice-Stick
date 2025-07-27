@@ -29,17 +29,20 @@ module top (
         .locked    (locked)
     );
 
-    wire uart_rx_gated;
+    wire start_offset_counter_unused;
+
+    wire tx_release;
 
     command_processor command_processor (
         .clk                 (sys_clk),
-        .din                 (uart_rx_gated),
+        .din                 (uart_rx),
         .rst                 (!locked),
         .dout                (target_tx),
         .target_reset        (target_reset),
         .duration            (glitch_duration),
         .offset              (glitch_offset),
-        .start_offset_counter()
+        .start_offset_counter(start_offset_counter_unused),
+        .tx_release          (tx_release)
     );
 
     resetter resetter (
@@ -87,27 +90,25 @@ module top (
     assign power_ctrl = wide_glitch | short_active;
 
     localparam integer HS_DELAY_CYCLES = 100000;
-    reg        hs_hold;
-    reg        hs_pending;
-    reg [31:0] hs_cnt;
+
+    reg        hold;
+    reg [31:0] cnt;
 
     always @(posedge sys_clk) begin
         if (wg_rise) begin
-            hs_hold    <= 1'b1;
-            hs_pending <= 1'b1;
-            hs_cnt     <= HS_DELAY_CYCLES;
-        end else if (hs_pending) begin
+            hold <= 1'b1;
+            cnt  <= HS_DELAY_CYCLES;
+        end else if (hold) begin
             if (wide_glitch || short_active) begin
-                hs_cnt <= HS_DELAY_CYCLES;
-            end else if (hs_cnt != 0) begin
-                hs_cnt <= hs_cnt - 1'b1;
+                cnt <= HS_DELAY_CYCLES;
+            end else if (cnt != 0) begin
+                cnt <= cnt - 1'b1;
             end else begin
-                hs_hold    <= 1'b0;
-                hs_pending <= 1'b0;
+                hold <= 1'b0;
             end
         end
     end
 
-    assign uart_rx_gated = hs_hold ? 1'b1 : uart_rx;
+    assign tx_release = ~hold;
 
 endmodule
