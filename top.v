@@ -1,5 +1,4 @@
-/1
-
+//2
 `default_nettype none
 
 module top (
@@ -13,32 +12,25 @@ module top (
     output wire power_ctrl
 );
 
-    // ── 内部连线 ───────────────────────────────────────────────
-    wire sys_clk;                     // system clock (PLL)
-    wire locked;                      // PLL lock
-    wire target_reset;                // 来自 command_processor 的复位请求（高有效）
-    wire start_offset_counter;        // 启动 offset 计数
-    wire start_duration_counter;      // 启动 duration 计数
-    wire [31:0] glitch_duration;      // 短毛刺 duration
-    wire [31:0] glitch_offset;        // 短毛刺 offset
+    wire sys_clk;
+    wire locked;
+    wire target_reset;
+    wire start_offset_counter;
+    wire start_duration_counter;
+    wire [31:0] glitch_duration;
+    wire [31:0] glitch_offset;
+    wire short_active;
+    wire wide_glitch;
 
-    wire short_active;                // duration_counter 的输出（短毛刺，高=断电）
-    wire wide_glitch;                 // resetter 的输出（复位期间为 1，高=断电）
-
-    // ── UART 直通到目标 ───────────────────────────────────────
     assign uart_tx = target_rx;
-
-    // ── 指示灯 ────────────────────────────────────────────────
     assign gled1 = locked;
 
-    // ── PLL ──────────────────────────────────────────────────
     pll my_pll (
         .clock_in  (clk),
         .clock_out (sys_clk),
         .locked    (locked)
     );
 
-    // ── 命令处理 ──────────────────────────────────────────────
     command_processor command_processor (
         .clk                 (sys_clk),
         .din                 (uart_rx),
@@ -50,38 +42,48 @@ module top (
         .start_offset_counter(start_offset_counter)
     );
 
-    // ── 宽毛刺/复位发生器（nRESET & 供电门控宽毛刺）──────────
-    // 注意：resetter 需要有 wide_glitch 这个高有效输出
     resetter resetter (
         .clk        (sys_clk),
-        .enable     (target_reset),  // 高电平开始一次宽脉冲
-        .reset_line (target_rst),    // 低有效 nRESET → 接目标复位脚
-        .wide_glitch(wide_glitch)    // 高有效“宽毛刺” → 用于 power_ctrl
+        .enable     (target_reset),
+        .reset_line (target_rst),
+        .wide_glitch(wide_glitch)
     );
 
-    // ── offset 计数 ───────────────────────────────────────────
+    reg wg_d;
+    wire wg_fall;
+    always @(posedge sys_clk) wg_d <= wide_glitch;
+    assign wg_fall = wg_d & ~wide_glitch;
+
+    reg armed;
+    always @(posedge sys_clk) begin
+        if (target_reset) armed <= 1'b1;
+        else if (wg_fall) armed <= 1'b0;
+    end
+
+    reg start_pulse;
+    always @(posedge sys_clk) begin
+        start_pulse <= 1'b0;
+        if (wg_fall && armed) start_pulse <= 1'b1;
+    end
+
+    wire counters_reset = target_reset | wide_glitch;
+
     offset_counter offset_counter (
         .clk    (sys_clk),
-        .reset  (target_reset),
-        .enable (start_offset_counter),
+        .reset  (counters_reset),
+        .enable (start_pulse),
         .din    (glitch_offset),
         .done   (start_duration_counter)
     );
 
-    // ── duration 计数（短毛刺）────────────────────────────────
     duration_counter duration_counter (
         .clk         (sys_clk),
-        .reset       (target_reset),
+        .reset       (counters_reset),
         .enable      (start_duration_counter),
         .din         (glitch_duration),
-        .power_select(short_active)      // 高有效 = 断电
+        .power_select(short_active)
     );
 
-    // ── 供电门控：宽毛刺 OR 短毛刺 ────────────────────────────
-    // 若外部硬件为高电平=断电：直接 OR
     assign power_ctrl = wide_glitch | short_active;
-
-    // 若你的外部电源开关是“低电平=断电”，改成：
-    // assign power_ctrl = ~(wide_glitch | short_active);
 
 endmodule
