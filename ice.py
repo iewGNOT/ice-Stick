@@ -133,16 +133,20 @@ class Glitcher():
 
         # use auto baudrate detection
         cmd = b"?"
+        print("[DEBUG] Sending '?'")
         data = CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd
         self.dev.write(data)
 
         # receive synchronized message
         resp = self.read_data(echo=False)
-
+        print(f"[DEBUG] Got: {repr(resp)} ({type(resp)})")
+      
         if resp != SYNCHRONIZED:
+            print("[ERROR] Not synchronized")
             return False
 
         # respond with "Synchronized"
+        print("[DEBUG] Sending 'Synchronized\\r\\n'")
         cmd = SYNCHRONIZED + CRLF
         data = CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd
         self.dev.write(data)
