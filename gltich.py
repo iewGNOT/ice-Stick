@@ -74,6 +74,8 @@ CRYSTAL_FREQ = b"10000" + CRLF
 MAX_BYTES = 20
 UART_TIMEOUT = 5
 DUMP_FILE = "memory.dump"
+DUMP_FILE_BIN = "memory.bin"
+DUMP_FILE_HEX = "memory.hex"
 RESULTS_FILE = "results.txt"
 
 # FPGA commands for iCEstick voltage glitcher
