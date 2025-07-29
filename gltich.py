@@ -298,19 +298,34 @@ class Glitcher():
     def dump_memory(self):
         buf = bytearray()
         for i in range(1024):
-            resp = self.send_target_command(OK, 1, True, b"\r\n")
+            _ = self.send_target_command(OK, 1, True, b"\r\n")
             cmd = "R {} 32".format(i * 32).encode("utf-8")
             resp = self.send_target_command(cmd, 1, True, b"\r\n")
+    
             if resp[0] == b"0":
                 data = b"begin 666 <data>\n" + resp[1] + b" \n \nend\n"
                 raw = decode(data, "uu")
-                print(fg.li_blue + bytes.hex(raw) + fg.rs)
+                if len(raw) != 32:
+                    print(fg.li_red + f"[!] Block {i} decoded {len(raw)}B, padding 0xFF to 32B" + fg.rs)
+                    raw = (raw + b"\xFF"*32)[:32]
+                else:
+                    print(fg.li_blue + bytes.hex(raw) + fg.rs)
                 buf.extend(raw)
+            else:
+                print(fg.li_red + f"[!] Block {i} read failed, filling with 0xFF" + fg.rs)
+                buf.extend(b"\xFF" * 32)
+    
+        expected = 32 * 1024
+        if len(buf) != expected:
+            print(fg.li_red + f"[!] Size {len(buf)} != {expected}, fixing length" + fg.rs)
+            if len(buf) < expected:
+                buf.extend(b"\xFF" * (expected - len(buf)))
+            else:
+                buf = buf[:expected]
     
         with open(DUMP_FILE_BIN, "wb") as f:
             f.write(buf)
     
-        # 可按需调整 base_addr/rec_len
         self._write_intel_hex(bytes(buf), DUMP_FILE_HEX, base_addr=0x0000, rec_len=16)
     
         print(fg.li_white + "[*] Wrote '{}' ({} bytes) and '{}'".format(
