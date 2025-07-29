@@ -74,6 +74,8 @@ CRYSTAL_FREQ = b"10000" + CRLF
 MAX_BYTES = 20
 UART_TIMEOUT = 5
 DUMP_FILE = "memory.dump"
+DUMP_FILE_BIN = "memory.bin"
+DUMP_FILE_HEX = "memory.hex"
 RESULTS_FILE = "results.txt"
 
 # FPGA commands for iCEstick voltage glitcher
@@ -268,29 +270,51 @@ class Glitcher():
         # send command
         self.dev.write(CMD_START_GLITCH)
 
+    def _write_intel_hex(self, bin_bytes: bytes, out_path: str, base_addr=0, rec_len=16):
+        def rec(addr16, rtype, data):
+            ll   = len(data)
+            a_hi = (addr16 >> 8) & 0xFF
+            a_lo = addr16 & 0xFF
+            b = bytes([ll, a_hi, a_lo, rtype]) + data
+            cks = ((~(sum(b) & 0xFF) + 1) & 0xFF)
+            return ":" + "".join(f"{x:02X}" for x in b + bytes([cks])) + "\n"
+        with open(out_path, "w", newline="\n") as f:
+            addr = base_addr & 0xFFFF
+            ext  = (base_addr >> 16) & 0xFFFF
+            if ext:
+                f.write(rec(0x0000, 0x04, bytes([(ext >> 8) & 0xFF, ext & 0xFF])))
+            i = 0
+            n = len(bin_bytes)
+            while i < n:
+                chunk = bin_bytes[i:i+16]
+                f.write(rec(addr, 0x00, chunk))
+                i    += len(chunk)
+                addr  = (addr + len(chunk)) & 0xFFFF
+                if addr == 0 and i < n:
+                    ext += 1
+                    f.write(rec(0x0000, 0x04, bytes([(ext >> 8) & 0xFF, ext & 0xFF])))
+            f.write(":00000001FF\n")
+    
     def dump_memory(self):
-        """Dump the target device memory"""
-
-        # dump the 32 kB flash memory and save the content to a file
-        with open(DUMP_FILE, "wb") as f:
-
-            # read all 32 kB of flash memory
-            for i in range(1023):
-                # first send "OK" to the target device
-                resp = self.send_target_command(OK, 1, True, b"\r\n")
-
-                # then a read command for 32 bytes
-                cmd = "R {} 32".format(i * 32).encode("utf-8")
-                resp = self.send_target_command(cmd, 1, True, b"\r\n")
-
-                if resp[0] == b"0":
-                    # read and decode uu-encodod data in a somewhat "hacky" way
-                    data = b"begin 666 <data>\n" + resp[1] + b" \n \nend\n"
-                    raw_data = decode(data, "uu")
-                    print(fg.li_blue + bytes.hex(raw_data) + fg.rs)
-                    f.write(raw_data)
-
-        print(fg.li_white + "[*] Dumped memory written to '{}'".format(DUMP_FILE) + fg.rs)
+        buf = bytearray()
+        for i in range(1024):
+            resp = self.send_target_command(OK, 1, True, b"\r\n")
+            cmd = "R {} 32".format(i * 32).encode("utf-8")
+            resp = self.send_target_command(cmd, 1, True, b"\r\n")
+            if resp[0] == b"0":
+                data = b"begin 666 <data>\n" + resp[1] + b" \n \nend\n"
+                raw = decode(data, "uu")
+                print(fg.li_blue + bytes.hex(raw) + fg.rs)
+                buf.extend(raw)
+    
+        with open(DUMP_FILE_BIN, "wb") as f:
+            f.write(buf)
+    
+        # 这里默认以 0x0000 为基地址输出 HEX；如果需要别的基址自行调整
+        self._write_intel_hex(bytes(buf), DUMP_FILE_HEX, base_addr=0x0000, rec_len=16)
+    
+        print(fg.li_white + "[*] Wrote '{}' ({} bytes) and '{}'".format(
+            DUMP_FILE_BIN, len(buf), DUMP_FILE_HEX) + fg.rs)
 
     def run(self):
         """Run the glitching process with the current configuration"""
