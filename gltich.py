@@ -286,7 +286,7 @@ class Glitcher():
             i = 0
             n = len(bin_bytes)
             while i < n:
-                chunk = bin_bytes[i:i+16]
+                chunk = bin_bytes[i:i+rec_len]        # ← 这里用 rec_len
                 f.write(rec(addr, 0x00, chunk))
                 i    += len(chunk)
                 addr  = (addr + len(chunk)) & 0xFFFF
@@ -310,7 +310,7 @@ class Glitcher():
         with open(DUMP_FILE_BIN, "wb") as f:
             f.write(buf)
     
-        # 这里默认以 0x0000 为基地址输出 HEX；如果需要别的基址自行调整
+        # 可按需调整 base_addr/rec_len
         self._write_intel_hex(bytes(buf), DUMP_FILE_HEX, base_addr=0x0000, rec_len=16)
     
         print(fg.li_white + "[*] Wrote '{}' ({} bytes) and '{}'".format(
