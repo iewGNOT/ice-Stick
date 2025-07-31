@@ -1,3 +1,4 @@
+#1
 
 __version__ = '0.5'
 __author__ = 'Matthias Deeg'
@@ -11,7 +12,6 @@ from pylibftdi import Device, INTERFACE_B
 from struct import pack
 from sty import fg, ef
 from time import sleep
-import time
 
 # some definitions
 CRLF = b"\r\n"
@@ -20,8 +20,10 @@ OK = b"OK"
 READ_FLASH_CHECK = b"R 0 4"
 CRYSTAL_FREQ = b"10000" + CRLF
 MAX_BYTES = 20
-UART_TIMEOUT = 1
+UART_TIMEOUT = 5
 DUMP_FILE = "memory.dump"
+DUMP_FILE_BIN = "memory.bin"
+DUMP_FILE_HEX = "memory.hex"
 RESULTS_FILE = "results.txt"
 
 # FPGA commands for iCEstick voltage glitcher
@@ -54,27 +56,27 @@ class Glitcher():
         self.end_duration = end_duration
         self.retries = retries
 
-
     def read_data(self, terminator=b"\r\n", echo=True):
-        """Read UART data with timeout"""
+        """Read UART data"""
+
+        # if echo is on, read the echo first
         if echo:
             c = b"\x00"
-            start = time.time()
             while c != b"\r":
                 c = self.dev.read(1)
-                if time.time() - start > UART_TIMEOUT:
-                    return b"UART_TIMEOUT"
-    
+
         data = b""
-        start = time.time()
+        count = 0
         while True:
+            count += 1
             data += self.dev.read(1)
             if data[-2:] == CRLF:
                 break
-            if time.time() - start > UART_TIMEOUT:
-                return b"UART_TIMEOUT"
-        return data.replace(terminator, b"")
+            if count > MAX_BYTES:
+                return "UART_TIMEOUT"
 
+        # return read bytes without terminator
+        return data.replace(terminator, b"")
 
     def synchronize(self):
         """UART synchronization with auto baudrate detection"""
@@ -111,50 +113,71 @@ class Glitcher():
         return True
 
     def read_command_response(self, response_count, echo=True, terminator=b"\r\n"):
-        """Read command response from target device with timeout"""
-    
+        """Read command response from target device"""
+
         result = []
-    
-        # ---------- Echo部分 ----------
+        data = b""
+
+        # if echo is on, read the sent back ISP command before the actual response
+        count = 0
         if echo:
             c = b"\x00"
-            start = time.time()
             while c != b"\r":
+                count += 1
                 c = self.dev.read(1)
-                if time.time() - start > UART_TIMEOUT:
-                    return ["TIMEOUT"]
-    
-        # ---------- 读取返回码 ----------
+
+                if count > MAX_BYTES:
+                    return "TIMEOUT"
+
+        # read return code
         data = b""
-        start = time.time()
+        old_len = 0
+        count = 0
         while True:
             data += self.dev.read(1)
+
+            # if data[len(terminator) * -1:] == terminator:
             if data[-2:] == terminator:
                 break
-            if time.time() - start > UART_TIMEOUT:
-                return ["TIMEOUT"]
-    
+
+            if len(data) == old_len:
+                count += 1
+
+                if count > MAX_BYTES:
+                    return "TIMEOUT"
+            else:
+                old_len = len(data)
+
+        # add return code to result
         return_code = data.replace(CRLF, b"")
         result.append(return_code)
-    
-        # ---------- 如果返回码不是成功，直接返回 ----------
+
+        # check return code and return immediately if it is not "CMD_SUCCESS"
         if return_code != b"0":
             return result
-    
-        # ---------- 读取响应数据 ----------
-        for _ in range(response_count):
+
+        # read specified number of responses
+        for i in range(response_count):
             data = b""
-            start = time.time()
+            count = 0
+            old_len = 0
             while True:
                 data += self.dev.read(1)
                 if data[-2:] == terminator:
                     break
-                if time.time() - start > UART_TIMEOUT:
-                    return ["TIMEOUT"]
-            result.append(data.replace(CRLF, b""))
-    
-        return result
 
+                if len(data) == old_len:
+                    count += 1
+
+                    if count > MAX_BYTES:
+                        return "TIMEOUT"
+                else:
+                    old_len = len(data)
+
+            # add response to result
+            result.append(data.replace(CRLF, b""))
+
+        return result
 
     def send_target_command(self, command, response_count=0, echo=True, terminator=b"\r\n"):
         """Send command to target device"""
@@ -195,31 +218,104 @@ class Glitcher():
         # send command
         self.dev.write(CMD_START_GLITCH)
 
+    def _write_intel_hex(self, bin_bytes: bytes, out_path: str, base_addr=0, rec_len=16):
+        def rec(addr16, rtype, data):
+            ll   = len(data)
+            a_hi = (addr16 >> 8) & 0xFF
+            a_lo = addr16 & 0xFF
+            b = bytes([ll, a_hi, a_lo, rtype]) + data
+            cks = ((~(sum(b) & 0xFF) + 1) & 0xFF)
+            return ":" + "".join(f"{x:02X}" for x in b + bytes([cks])) + "\n"
+        with open(out_path, "w", newline="\n") as f:
+            addr = base_addr & 0xFFFF
+            ext  = (base_addr >> 16) & 0xFFFF
+            if ext:
+                f.write(rec(0x0000, 0x04, bytes([(ext >> 8) & 0xFF, ext & 0xFF])))
+            i = 0
+            n = len(bin_bytes)
+            while i < n:
+                chunk = bin_bytes[i:i+rec_len]        # ← 这里用 rec_len
+                f.write(rec(addr, 0x00, chunk))
+                i    += len(chunk)
+                addr  = (addr + len(chunk)) & 0xFFFF
+                if addr == 0 and i < n:
+                    ext += 1
+                    f.write(rec(0x0000, 0x04, bytes([(ext >> 8) & 0xFF, ext & 0xFF])))
+            f.write(":00000001FF\n")
+    
     def dump_memory(self):
-        """Dump the target device memory"""
-
-        # dump the 32 kB flash memory and save the content to a file
-        with open(DUMP_FILE, "wb") as f:
-
-            # read all 32 kB of flash memory
-            for i in range(1023):
-                # first send "OK" to the target device
-                resp = self.send_target_command(OK, 1, True, b"\r\n")
-
-                # then a read command for 32 bytes
-                cmd = "R {} 32".format(i * 32).encode("utf-8")
-                resp = self.send_target_command(cmd, 1, True, b"\r\n")
-
-                if resp[0] == b"0":
-                    # read and decode uu-encodod data in a somewhat "hacky" way
-                    data = b"begin 666 <data>\n" + resp[1] + b" \n \nend\n"
-                    raw_data = decode(data, "uu")
-                    print(fg.li_blue + bytes.hex(raw_data) + fg.rs)
-                    f.write(raw_data)
-
-        print(fg.li_white + "[*] Dumped memory written to '{}'".format(DUMP_FILE) + fg.rs)
+        buf = bytearray()
+        for i in range(1536):
+            _ = self.send_target_command(OK, 1, True, b"\r\n")
+            cmd = "R {} 32".format(i * 32).encode("utf-8")
+            resp = self.send_target_command(cmd, 1, True, b"\r\n")
+    
+            if resp[0] == b"0":
+                data = b"begin 666 <data>\n" + resp[1] + b" \n \nend\n"
+                raw = decode(data, "uu")
+                if len(raw) != 32:
+                    print(fg.li_red + f"[!] Block {i} decoded {len(raw)}B, padding 0xFF to 32B" + fg.rs)
+                    raw = (raw + b"\xFF"*32)[:32]
+                else:
+                    print(fg.li_blue + bytes.hex(raw) + fg.rs)
+                buf.extend(raw)
+            else:
+                print(fg.li_red + f"[!] Block {i} read failed, filling with 0xFF" + fg.rs)
+                buf.extend(b"\xFF" * 32)
+    
+        expected = 48 * 1024
+        if len(buf) != expected:
+            print(fg.li_red + f"[!] Size {len(buf)} != {expected}, fixing length" + fg.rs)
+            if len(buf) < expected:
+                buf.extend(b"\xFF" * (expected - len(buf)))
+            else:
+                buf = buf[:expected]
+    
+        with open(DUMP_FILE_BIN, "wb") as f:
+            f.write(buf)
+    
+        self._write_intel_hex(bytes(buf), DUMP_FILE_HEX, base_addr=0x0000, rec_len=16)
+    
+        print(fg.li_white + "[*] Wrote '{}' ({} bytes) and '{}'".format(
+            DUMP_FILE_BIN, len(buf), DUMP_FILE_HEX) + fg.rs)
 
     def run(self):
+        """Run the glitching process with the current configuration"""
+
+        # # reset target
+        # self.reset_target()
+        #
+        # # read and show the UID of the target device
+        # print(fg.li_white + "[*] Read target device UID" + fg.rs)
+        # resp = self.send_target_command(b"N", 4, True, b"\r\n")
+        #
+        # if resp[0] == b"0" and len(resp) == 5:
+        #     uid = "{} {} {} {}".format(resp[4].decode("ascii"), resp[3].decode("ascii"), resp[2].decode("ascii"), resp[1].decode("ascii"))
+        # else:
+        #     uid = "<unknown>"
+        #     print(fg.li_red + "[-] Could not read target device UID" + fg.rs)
+        #
+        # # read part identification number
+        # print(fg.li_white + "[*] Read target device part ID" + fg.rs)
+        # resp = self.send_target_command(b"J", 1, True, b"\r\n")
+        #
+        # if resp[0] == b"0":
+        #     part_id = "{}".format(resp[1].decode("ascii"))
+        # else:
+        #     part_id = "<unknown>"
+        #     print(fg.li_red + "[-] Could not read target part ID" + fg.rs)
+        #
+        # # show target device info
+        # print(fg.li_white + "[*] Target device info:\n" +
+        #         "    UID:                        {}\n".format(uid) +
+        #         "    Part identification number: {}".format(part_id))
+        #
+        # print(fg.li_white + "[*] Press <ENTER> to start the glitching process" + fg.rs)
+        # input()
+
+        # measure the time
+        start_time = datetime.now()
+
         for offset in range(self.start_offset, self.end_offset, self.offset_step):
             # duration in 10 ns increments
             for duration in range(self.start_duration, self.end_duration, self.duration_step):
