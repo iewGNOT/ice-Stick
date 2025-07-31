@@ -80,36 +80,47 @@ class Glitcher():
 
     def synchronize(self):
         """UART synchronization with auto baudrate detection"""
-
+    
         # use auto baudrate detection
         cmd = b"?"
         data = CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd
         self.dev.write(data)
-
-        # receive synchronized message
-        resp = self.read_data(echo=False)
-
-        if resp != SYNCHRONIZED:
+    
+        # receive possible "Synchronized\r\nOK\r\n" in one go
+        response = b""
+        count = 0
+        while True:
+            byte = self.dev.read(1)
+            if not byte:
+                break
+            response += byte
+            if response.endswith(b"OK\r\n"):
+                break
+            count += 1
+            if count > 100:
+                return False
+    
+        if b"Synchronized\r\n" not in response or b"OK\r\n" not in response:
             return False
-
+    
         # respond with "Synchronized"
         cmd = SYNCHRONIZED + CRLF
         data = CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd
         self.dev.write(data)
-
+    
         # read response, should be "OK"
         resp = self.read_data()
         if resp != OK:
             return False
-
+    
         # send crystal frequency (in kHz)
         self.dev.write(CMD_PASSTHROUGH + b"\x07" + CRYSTAL_FREQ)
-
+    
         # read response, should be "OK"
         resp = self.read_data()
         if resp != OK:
             return False
-
+    
         return True
 
     def read_command_response(self, response_count, echo=True, terminator=b"\r\n"):
