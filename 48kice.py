@@ -77,30 +77,6 @@ class Glitcher():
 
         # return read bytes without terminator
         return data.replace(terminator, b"")
-
-    def _read_line_noecho(self, terminator=b"\r\n"):
-        data = b""
-        count = 0
-        while True:
-            b1 = self.dev.read(1)
-            if not b1:
-                count += 1
-                if count > MAX_BYTES:
-                    return None
-                continue
-            data += b1
-            if data.endswith(terminator):
-                return data[:-len(terminator)]
-    
-    def _read_until_line(self, target: bytes, max_lines=10):
-        # 连续读多行，直到匹配到 target；其余行全部忽略
-        for _ in range(max_lines):
-            line = self._read_line_noecho()
-            if line is None:
-                return False
-            if line == target:
-                return True
-        return False
     
     def synchronize(self):
         """UART synchronization with auto baudrate detection"""
@@ -111,7 +87,6 @@ class Glitcher():
         self.dev.write(data)
         print(f"[PC >> Target] {repr(cmd)}")
     
-        # Step 2: Read "Synchronized"
         resp = self.read_data(echo=False)
         print(f"[Target >> PC] {repr(resp)}")
     
@@ -125,30 +100,27 @@ class Glitcher():
         self.dev.write(data)
         print(f"[PC >> Target] {repr(cmd)}")
     
-        # Step 4: Try to read two responses (e.g., Synchronized + OK)
-        sync_resp = self.read_data()
-        print(f"[Target >> PC] sync_resp: {repr(sync_resp)}")
-        if sync_resp != SYNCHRONIZED:
-            print("[FAIL] Step 4: Expected 'Synchronized' again, got", repr(sync_resp))
+        # 🔧 读取第二阶段的回应：可能是 "Synchronized\r\nOK\r\n" 合并的
+        combined_resp = b""
+        for _ in range(2):
+            part = self.read_data()
+            print(f"[Target >> PC] part: {repr(part)}")
+            combined_resp += part + CRLF
+    
+        if SYNCHRONIZED + CRLF not in combined_resp or OK + CRLF not in combined_resp:
+            print("[FAIL] Step 4: Did not receive both Synchronized and OK")
             return False
     
-        ok_resp = self.read_data()
-        print(f"[Target >> PC] ok_resp: {repr(ok_resp)}")
-        if ok_resp != OK:
-            print("[FAIL] Step 5: Expected 'OK', got", repr(ok_resp))
-            return False
+        # Step 5: Send crystal frequency
+        print("[SYNC] Step 5: Send crystal frequency")
+        self.dev.write(CMD_PASSTHROUGH + pack("B", len(CRYSTAL_FREQ)) + CRYSTAL_FREQ)
+        print(f"[PC >> Target] {repr(CRYSTAL_FREQ)}")
     
-        # Step 6: Send crystal frequency
-        print("[SYNC] Step 6: Send crystal frequency '10000\\r\\n'")
-        freq_cmd = CRYSTAL_FREQ
-        self.dev.write(CMD_PASSTHROUGH + pack("B", len(freq_cmd)) + freq_cmd)
-        print(f"[PC >> Target] {repr(freq_cmd)}")
+        freq_resp = self.read_data()
+        print(f"[Target >> PC] {repr(freq_resp)}")
     
-        # Step 7: Read OK response
-        final_ok = self.read_data()
-        print(f"[Target >> PC] crystal OK: {repr(final_ok)}")
-        if final_ok != OK:
-            print("[FAIL] Step 7: Expected final OK, got", repr(final_ok))
+        if freq_resp != OK:
+            print("[FAIL] Step 6: Expected OK after crystal, got", repr(freq_resp))
             return False
     
         print("[SYNC] Synchronization complete ✓")
