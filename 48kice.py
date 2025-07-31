@@ -79,87 +79,64 @@ class Glitcher():
         return data.replace(terminator, b"")
     
     def synchronize(self):
-        """UART synchronization with auto baudrate detection (robust & tolerant)"""
+        """UART synchronization with auto baudrate detection (quiet, tolerant)."""
     
-        # 清空可能残留的数据，防止上一轮的 OK/数字污染本轮
+        # 清输入缓冲，避免残留数据干扰（若库不支持则忽略异常）
         try:
             self.dev.flush_input()
         except Exception:
             pass
     
-        # Step 1: 发送 '?' 让目标做自动波特率
-        print("[SYNC] Step 1: Send '?' for autobaud")
+        # Step 1: 发送 '?' 触发自动波特率
         cmd = b"?"
         self.dev.write(CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd)
-        print(f"[PC >> Target] {repr(cmd)}")
     
         # Step 2: 等待目标回 'Synchronized'
-        print("[SYNC] Step 2: Wait for 'Synchronized'")
         got_sync = False
         for _ in range(10):
             resp = self.read_data(echo=False)
-            print(f"[Target >> PC] {repr(resp)}")
-            if resp == "UART_TIMEOUT":
-                continue
-            if resp.strip() == SYNCHRONIZED:
+            if resp != "UART_TIMEOUT" and resp.strip() == SYNCHRONIZED:
                 got_sync = True
                 break
-            # 其他诸如 b'OK'、b'12000'、空行——忽略，继续读
         if not got_sync:
-            print("[FAIL] Step 2: Expected 'Synchronized'")
             return False
     
         # Step 3: 回送 'Synchronized\r\n'
-        print("[SYNC] Step 3: Send 'Synchronized\\r\\n'")
         cmd = SYNCHRONIZED + CRLF
         self.dev.write(CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd)
-        print(f"[PC >> Target] {repr(cmd)}")
     
-        # Step 4: 等待目标确认。某些 ROM 会先回 'Synchronized' 再回 'OK'，
-        # 也可能只回 'OK'。见到 OK 即可进入下一步。
-        print("[SYNC] Step 4: Wait for target confirm (Synchronized and/or OK)")
+        # Step 4: 等待确认（可能是先 'Synchronized' 再 'OK'，也可能只有 'OK'）
         got_ok = False
         for _ in range(10):
             part = self.read_data(echo=False)
-            print(f"[Target >> PC] part: {repr(part)}")
             if part == "UART_TIMEOUT":
                 continue
             p = part.strip()
             if p == OK:
                 got_ok = True
                 break
-            # 同步回显（b'Synchronized'）可忽略
-            if p == SYNCHRONIZED or p == b"":
+            if p in (SYNCHRONIZED, b""):
                 continue
-            # 其他内容忽略，继续读
         if not got_ok:
-            print("[FAIL] Step 4: Did not see OK from target")
             return False
     
-        # Step 5: 发送晶振频率（kHz），例如 b'12000\\r\\n'
-        print("[SYNC] Step 5: Send crystal frequency")
+        # Step 5: 发送晶振频率（kHz），例如 b'12000\r\n'
         self.dev.write(CMD_PASSTHROUGH + pack("B", len(CRYSTAL_FREQ)) + CRYSTAL_FREQ)
-        print(f"[PC >> Target] {repr(CRYSTAL_FREQ)}")
     
-        # Step 6: 读取，先忽略目标回显的 '12000'，直到收到 'OK'
-        freq_echo = CRYSTAL_FREQ.rstrip(b"\r\n")  # b'12000'
-        print("[SYNC] Step 6: Wait for OK after crystal (ignore echo)")
+        # Step 6: 忽略对频率的回显，直到收到 'OK'
+        freq_echo = CRYSTAL_FREQ.rstrip(b"\r\n")  # e.g. b'12000'
         for _ in range(10):
             r = self.read_data(echo=False)
-            print(f"[Target >> PC] {repr(r)}")
             if r == "UART_TIMEOUT":
                 continue
             s = r.strip()
             if s == OK:
-                print("[SYNC] Synchronization complete ✓")
                 return True
-            if s == freq_echo or s == b"":
-                # 这是 '12000' 的回显或空行，继续等 OK
+            if s in (freq_echo, b""):
                 continue
-            # 其他杂音忽略，继续读
     
-        print("[FAIL] Step 6: Expected 'OK' after crystal frequency")
         return False
+
 
 
 
