@@ -87,6 +87,7 @@ class Glitcher():
         self.dev.write(data)
         print(f"[PC >> Target] {repr(cmd)}")
     
+        # Step 2: Wait for 'Synchronized'
         resp = self.read_data(echo=False)
         print(f"[Target >> PC] {repr(resp)}")
     
@@ -101,12 +102,24 @@ class Glitcher():
         print(f"[PC >> Target] {repr(cmd)}")
     
         # Step 4: Wait for both 'Synchronized' and 'OK'
-        combined_resp = b""
+        responses = []
+        timeout_count = 0
+    
         while True:
             part = self.read_data()
             print(f"[Target >> PC] part: {repr(part)}")
-            combined_resp += part + CRLF
-            if SYNCHRONIZED in combined_resp and OK in combined_resp:
+    
+            if part == "UART_TIMEOUT":
+                timeout_count += 1
+                if timeout_count >= 3:
+                    print("[FAIL] Step 4: Timeout waiting for response")
+                    return False
+                continue
+    
+            cleaned = part.strip()
+            responses.append(cleaned)
+    
+            if any(SYNCHRONIZED in r for r in responses) and any(OK in r for r in responses):
                 break
     
         # Step 5: Send crystal frequency
