@@ -105,38 +105,53 @@ class Glitcher():
     def synchronize(self):
         """UART synchronization with auto baudrate detection"""
     
-        # Step 1: Send "?" to trigger autobaud
+        print("[SYNC] Step 1: Send '?' for autobaud")
         cmd = b"?"
         data = CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd
         self.dev.write(data)
+        print(f"[PC >> Target] {repr(cmd)}")
     
-        # Step 2: Read first response: expect "Synchronized"
+        # Step 2: Read "Synchronized"
         resp = self.read_data(echo=False)
+        print(f"[Target >> PC] {repr(resp)}")
+    
         if resp != SYNCHRONIZED:
+            print("[FAIL] Step 2: Expected 'Synchronized', got", repr(resp))
             return False
     
-        # Step 3: Send back "Synchronized\r\n"
+        print("[SYNC] Step 3: Send 'Synchronized\\r\\n'")
         cmd = SYNCHRONIZED + CRLF
         data = CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd
         self.dev.write(data)
+        print(f"[PC >> Target] {repr(cmd)}")
     
-        # Step 4: Read *two* responses from target: "Synchronized" and "OK"
+        # Step 4: Try to read two responses (e.g., Synchronized + OK)
         sync_resp = self.read_data()
+        print(f"[Target >> PC] sync_resp: {repr(sync_resp)}")
         if sync_resp != SYNCHRONIZED:
+            print("[FAIL] Step 4: Expected 'Synchronized' again, got", repr(sync_resp))
             return False
     
         ok_resp = self.read_data()
+        print(f"[Target >> PC] ok_resp: {repr(ok_resp)}")
         if ok_resp != OK:
+            print("[FAIL] Step 5: Expected 'OK', got", repr(ok_resp))
             return False
     
-        # Step 5: Send crystal frequency
-        self.dev.write(CMD_PASSTHROUGH + b"\x07" + CRYSTAL_FREQ)
+        # Step 6: Send crystal frequency
+        print("[SYNC] Step 6: Send crystal frequency '10000\\r\\n'")
+        freq_cmd = CRYSTAL_FREQ
+        self.dev.write(CMD_PASSTHROUGH + pack("B", len(freq_cmd)) + freq_cmd)
+        print(f"[PC >> Target] {repr(freq_cmd)}")
     
-        # Step 6: Read OK again
-        resp = self.read_data()
-        if resp != OK:
+        # Step 7: Read OK response
+        final_ok = self.read_data()
+        print(f"[Target >> PC] crystal OK: {repr(final_ok)}")
+        if final_ok != OK:
+            print("[FAIL] Step 7: Expected final OK, got", repr(final_ok))
             return False
     
+        print("[SYNC] Synchronization complete ✓")
         return True
 
 
