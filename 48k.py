@@ -297,7 +297,7 @@ class Glitcher():
     
     def dump_memory(self):
         buf = bytearray()
-        for i in range(1024):
+        for i in range(1536):
             _ = self.send_target_command(OK, 1, True, b"\r\n")
             cmd = "R {} 32".format(i * 32).encode("utf-8")
             resp = self.send_target_command(cmd, 1, True, b"\r\n")
@@ -315,7 +315,7 @@ class Glitcher():
                 print(fg.li_red + f"[!] Block {i} read failed, filling with 0xFF" + fg.rs)
                 buf.extend(b"\xFF" * 32)
     
-        expected = 32 * 1024
+        expected = 48 * 1024
         if len(buf) != expected:
             print(fg.li_red + f"[!] Size {len(buf)} != {expected}, fixing length" + fg.rs)
             if len(buf) < expected:
