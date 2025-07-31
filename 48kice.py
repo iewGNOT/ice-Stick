@@ -18,7 +18,7 @@ CRLF = b"\r\n"
 SYNCHRONIZED = b"Synchronized"
 OK = b"OK"
 READ_FLASH_CHECK = b"R 0 4"
-CRYSTAL_FREQ = b"10000" + CRLF
+CRYSTAL_FREQ = b"12000" + CRLF
 MAX_BYTES = 20
 UART_TIMEOUT = 5
 DUMP_FILE = "memory.dump"
@@ -78,50 +78,56 @@ class Glitcher():
         # return read bytes without terminator
         return data.replace(terminator, b"")
 
-    def synchronize(self):
-        """UART synchronization with auto baudrate detection"""
-    
-        # use auto baudrate detection
-        cmd = b"?"
-        data = CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd
-        self.dev.write(data)
-    
-        # receive possible "Synchronized\r\nOK\r\n" in one go
-        response = b""
+    def _read_line_noecho(self, terminator=b"\r\n"):
+        data = b""
         count = 0
         while True:
-            byte = self.dev.read(1)
-            if not byte:
-                break
-            response += byte
-            if response.endswith(b"OK\r\n"):
-                break
-            count += 1
-            if count > 100:
+            b1 = self.dev.read(1)
+            if not b1:
+                count += 1
+                if count > MAX_BYTES:
+                    return None
+                continue
+            data += b1
+            if data.endswith(terminator):
+                return data[:-len(terminator)]
+    
+    def _read_until_line(self, target: bytes, max_lines=10):
+        # 连续读多行，直到匹配到 target；其余行全部忽略
+        for _ in range(max_lines):
+            line = self._read_line_noecho()
+            if line is None:
                 return False
+            if line == target:
+                return True
+        return False
     
-        if b"Synchronized\r\n" not in response or b"OK\r\n" not in response:
+    def synchronize(self):
+        # 1) 发送 '?'
+        cmd = b"?"
+        self.dev.write(CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd)
+    
+        # 2) 读取直到出现 "Synchronized"
+        if not self._read_until_line(SYNCHRONIZED):
             return False
     
-        # respond with "Synchronized"
+        # 3) 回显 "Synchronized\r\n"
         cmd = SYNCHRONIZED + CRLF
-        data = CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd
-        self.dev.write(data)
+        self.dev.write(CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd)
     
-        # read response, should be "OK"
-        resp = self.read_data()
-        if resp != OK:
+        # 4) 读取直到出现 "OK"
+        if not self._read_until_line(OK):
             return False
     
-        # send crystal frequency (in kHz)
+        # 5) 发送晶振频率（kHz）
         self.dev.write(CMD_PASSTHROUGH + b"\x07" + CRYSTAL_FREQ)
     
-        # read response, should be "OK"
-        resp = self.read_data()
-        if resp != OK:
+        # 6) 再次读取直到出现 "OK"
+        if not self._read_until_line(OK):
             return False
     
         return True
+
 
     def read_command_response(self, response_count, echo=True, terminator=b"\r\n"):
         """Read command response from target device"""
