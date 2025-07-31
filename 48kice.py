@@ -1,4 +1,4 @@
-#2
+#3
 
 __version__ = '0.5'
 __author__ = 'Matthias Deeg'
@@ -79,57 +79,66 @@ class Glitcher():
         return data.replace(terminator, b"")
     
     def synchronize(self):
-        """UART synchronization with auto baudrate detection"""
+        """UART synchronization with auto baudrate detection (robust & tolerant)"""
     
         print("[SYNC] Step 1: Send '?' for autobaud")
         cmd = b"?"
-        data = CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd
-        self.dev.write(data)
+        self.dev.write(CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd)
         print(f"[PC >> Target] {repr(cmd)}")
     
-        # Step 2: Wait for 'Synchronized'
+        # Step 2: expect 'Synchronized' from target (spontaneous)
         resp = self.read_data(echo=False)
         print(f"[Target >> PC] {repr(resp)}")
-    
         if resp != SYNCHRONIZED:
             print("[FAIL] Step 2: Expected 'Synchronized', got", repr(resp))
             return False
     
+        # Step 3: echo back 'Synchronized\r\n'
         print("[SYNC] Step 3: Send 'Synchronized\\r\\n'")
         cmd = SYNCHRONIZED + CRLF
-        data = CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd
-        self.dev.write(data)
+        self.dev.write(CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd)
         print(f"[PC >> Target] {repr(cmd)}")
     
-        # Step 4: Wait for both 'Synchronized' and 'OK'
-        responses = []
-        timeout_count = 0
+        # Step 4: read responses (variant A: 'Synchronized' + 'OK', variant B: only 'OK')
+        print("[SYNC] Step 4: Wait for target confirm (Synchronized and/or OK)")
+        have_sync = False
+        have_ok   = False
+        timeouts  = 0
     
-        while True:
-            part = self.read_data()
+        for _ in range(10):  # read up to 10 lines/chunks
+            part = self.read_data(echo=False)  # *** DO NOT clear echo here ***
             print(f"[Target >> PC] part: {repr(part)}")
     
             if part == "UART_TIMEOUT":
-                timeout_count += 1
-                if timeout_count >= 3:
-                    print("[FAIL] Step 4: Timeout waiting for response")
+                timeouts += 1
+                if timeouts >= 3:
+                    print("[FAIL] Step 4: Timeout waiting for confirm")
                     return False
                 continue
     
-            cleaned = part.strip()
-            responses.append(cleaned)
+            p = part.strip()
+            if p:
+                if SYNCHRONIZED in p:
+                    have_sync = True
+                if OK in p:
+                    have_ok = True
     
-            if any(SYNCHRONIZED in r for r in responses) and any(OK in r for r in responses):
+            # 兼容两种握手：见到 OK 即可继续；如果还带 Synchronized 也无妨
+            if have_ok:
                 break
     
-        # Step 5: Send crystal frequency
+        if not have_ok:
+            print("[FAIL] Step 4: Did not see OK from target")
+            return False
+    
+        # Step 5: send crystal frequency (kHz), e.g. 12000
         print("[SYNC] Step 5: Send crystal frequency")
         self.dev.write(CMD_PASSTHROUGH + pack("B", len(CRYSTAL_FREQ)) + CRYSTAL_FREQ)
         print(f"[PC >> Target] {repr(CRYSTAL_FREQ)}")
     
-        freq_resp = self.read_data()
+        # Step 6: expect 'OK'
+        freq_resp = self.read_data(echo=False)
         print(f"[Target >> PC] {repr(freq_resp)}")
-    
         if freq_resp != OK:
             print("[FAIL] Step 6: Expected OK after crystal, got", repr(freq_resp))
             return False
