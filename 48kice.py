@@ -101,11 +101,15 @@ class Glitcher():
         print(f"[PC >> Target] {repr(cmd)}")
     
         # 🔧 读取第二阶段的回应：可能是 "Synchronized\r\nOK\r\n" 合并的
+        # Step 4: Wait for both 'Synchronized' and 'OK'
         combined_resp = b""
-        for _ in range(2):
+        while True:
             part = self.read_data()
             print(f"[Target >> PC] part: {repr(part)}")
             combined_resp += part + CRLF
+
+    if SYNCHRONIZED in combined_resp and OK in combined_resp:
+        break
     
         if SYNCHRONIZED + CRLF not in combined_resp or OK + CRLF not in combined_resp:
             print("[FAIL] Step 4: Did not receive both Synchronized and OK")
