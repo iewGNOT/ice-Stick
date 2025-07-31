@@ -103,27 +103,38 @@ class Glitcher():
         return False
     
     def synchronize(self):
-        # 1) 发送 '?'
+        """UART synchronization with auto baudrate detection"""
+    
+        # Step 1: Send "?" to trigger autobaud
         cmd = b"?"
-        self.dev.write(CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd)
+        data = CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd
+        self.dev.write(data)
     
-        # 2) 读取直到出现 "Synchronized"
-        if not self._read_until_line(SYNCHRONIZED):
+        # Step 2: Read first response: expect "Synchronized"
+        resp = self.read_data(echo=False)
+        if resp != SYNCHRONIZED:
             return False
     
-        # 3) 回显 "Synchronized\r\n"
+        # Step 3: Send back "Synchronized\r\n"
         cmd = SYNCHRONIZED + CRLF
-        self.dev.write(CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd)
+        data = CMD_PASSTHROUGH + pack("B", len(cmd)) + cmd
+        self.dev.write(data)
     
-        # 4) 读取直到出现 "OK"
-        if not self._read_until_line(OK):
+        # Step 4: Read *two* responses from target: "Synchronized" and "OK"
+        sync_resp = self.read_data()
+        if sync_resp != SYNCHRONIZED:
             return False
     
-        # 5) 发送晶振频率（kHz）
+        ok_resp = self.read_data()
+        if ok_resp != OK:
+            return False
+    
+        # Step 5: Send crystal frequency
         self.dev.write(CMD_PASSTHROUGH + b"\x07" + CRYSTAL_FREQ)
     
-        # 6) 再次读取直到出现 "OK"
-        if not self._read_until_line(OK):
+        # Step 6: Read OK again
+        resp = self.read_data()
+        if resp != OK:
             return False
     
         return True
