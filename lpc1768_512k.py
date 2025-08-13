@@ -250,17 +250,17 @@ class Glitcher():
     
     def dump_memory(self):
         buf = bytearray()
-        for i in range(16384):   # 原来是 1536，改成 512KB/32B = 16384
+        for i in range(2048):   # 原来是 1536，改成 512KB/32B = 16384
             _ = self.send_target_command(OK, 1, True, b"\r\n")
-            cmd = "R {} 32".format(i * 32).encode("utf-8")
+            cmd = "R {} 256".format(i * 256).encode("utf-8")
             resp = self.send_target_command(cmd, 1, True, b"\r\n")
     
             if resp[0] == b"0":
                 data = b"begin 666 <data>\n" + resp[1] + b" \n \nend\n"
                 raw = decode(data, "uu")
-                if len(raw) != 32:
+                if len(raw) != 256:
                     print(fg.li_red + f"[!] Block {i} decoded {len(raw)}B, padding 0xFF to 32B" + fg.rs)
-                    raw = (raw + b"\xFF"*32)[:32]
+                    raw = (raw + b"\xFF"*256)[:256]
                 else:
                     print(fg.li_blue + bytes.hex(raw) + fg.rs)
                 buf.extend(raw)
