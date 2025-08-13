@@ -2,54 +2,7 @@
 # -*- conding: utf-8 -*-
 
 """
-  iCE, iCE Baby Glitcher
-
-  by Matthias Deeg (@matthiasdeeg, matthias.deeg@syss.de)
-
-  Command tool for a simple FPGA-based voltage glitcher using a
-  Lattice Semiconductor iCEstick Evaluation Kit or an iCEBreaker FPGA
-
-  This glitcher is based on and inspired by glitcher implementations
-  by Dmitry Nedospasov (@nedos) from Toothless Consulting and
-  Grazfather (@Grazfather)
-
-  References:
-    http://www.latticesemi.com/icestick
-    https://www.crowdsupply.com/1bitsquared/icebreaker-fpga
-    https://github.com/toothlessco/arty-glitcher
-    https://toothless.co/blog/bootloader-bypass-part1/
-    https://toothless.co/blog/bootloader-bypass-part2/
-    https://toothless.co/blog/bootloader-bypass-part3/
-    https://github.com/Grazfather/glitcher
-    http://grazfather.github.io/re/pwn/electronics/fpga/2019/12/08/Glitcher.html
-
-  Copyright 2020, Matthias Deeg, SySS GmbH
-
-  Redistribution and use in source and binary forms, with or without
-  modification, are permitted provided that the following conditions are met:
-
-  1. Redistributions of source code must retain the above copyright notice,
-     this list of conditions and the following disclaimer.
-
-  2. Redistributions in binary form must reproduce the above copyright notice,
-     this list of conditions and the following disclaimer in the documentation
-     and/or other materials provided with the distribution.
-
-  3. Neither the name of the copyright holder nor the names of its contributors
-     may be used to endorse or promote products derived from this software
-     without specific prior written permission.
-
-  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
-  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-  POSSIBILITY OF SUCH DAMAGE.
+lpc1768
 """
 
 __version__ = '0.5'
@@ -70,10 +23,12 @@ CRLF = b"\r\n"
 SYNCHRONIZED = b"Synchronized"
 OK = b"OK"
 READ_FLASH_CHECK = b"R 0 4"
-CRYSTAL_FREQ = b"10000" + CRLF
-MAX_BYTES = 20
+CRYSTAL_FREQ = b"12000" + CRLF
+MAX_BYTES = 2048
 UART_TIMEOUT = 5
 DUMP_FILE = "memory.dump"
+DUMP_FILE_BIN = "memory.bin"
+DUMP_FILE_HEX = "memory.hex"
 RESULTS_FILE = "results.txt"
 
 # FPGA commands for iCEstick voltage glitcher
@@ -268,29 +223,66 @@ class Glitcher():
         # send command
         self.dev.write(CMD_START_GLITCH)
 
+    def _write_intel_hex(self, bin_bytes: bytes, out_path: str, base_addr=0, rec_len=16):
+        def rec(addr16, rtype, data):
+            ll   = len(data)
+            a_hi = (addr16 >> 8) & 0xFF
+            a_lo = addr16 & 0xFF
+            b = bytes([ll, a_hi, a_lo, rtype]) + data
+            cks = ((~(sum(b) & 0xFF) + 1) & 0xFF)
+            return ":" + "".join(f"{x:02X}" for x in b + bytes([cks])) + "\n"
+        with open(out_path, "w", newline="\n") as f:
+            addr = base_addr & 0xFFFF
+            ext  = (base_addr >> 16) & 0xFFFF
+            if ext:
+                f.write(rec(0x0000, 0x04, bytes([(ext >> 8) & 0xFF, ext & 0xFF])))
+            i = 0
+            n = len(bin_bytes)
+            while i < n:
+                chunk = bin_bytes[i:i+rec_len]        # ← 这里用 rec_len
+                f.write(rec(addr, 0x00, chunk))
+                i    += len(chunk)
+                addr  = (addr + len(chunk)) & 0xFFFF
+                if addr == 0 and i < n:
+                    ext += 1
+                    f.write(rec(0x0000, 0x04, bytes([(ext >> 8) & 0xFF, ext & 0xFF])))
+            f.write(":00000001FF\n")
+    
     def dump_memory(self):
-        """Dump the target device memory"""
-
-        # dump the 32 kB flash memory and save the content to a file
-        with open(DUMP_FILE, "wb") as f:
-
-            # read all 32 kB of flash memory
-            for i in range(1023):
-                # first send "OK" to the target device
-                resp = self.send_target_command(OK, 1, True, b"\r\n")
-
-                # then a read command for 32 bytes
-                cmd = "R {} 32".format(i * 32).encode("utf-8")
-                resp = self.send_target_command(cmd, 1, True, b"\r\n")
-
-                if resp[0] == b"0":
-                    # read and decode uu-encodod data in a somewhat "hacky" way
-                    data = b"begin 666 <data>\n" + resp[1] + b" \n \nend\n"
-                    raw_data = decode(data, "uu")
-                    print(fg.li_blue + bytes.hex(raw_data) + fg.rs)
-                    f.write(raw_data)
-
-        print(fg.li_white + "[*] Dumped memory written to '{}'".format(DUMP_FILE) + fg.rs)
+        buf = bytearray()
+        for i in range(16384):   # 原来是 1536，改成 512KB/32B = 16384
+            _ = self.send_target_command(OK, 1, True, b"\r\n")
+            cmd = "R {} 32".format(i * 32).encode("utf-8")
+            resp = self.send_target_command(cmd, 1, True, b"\r\n")
+    
+            if resp[0] == b"0":
+                data = b"begin 666 <data>\n" + resp[1] + b" \n \nend\n"
+                raw = decode(data, "uu")
+                if len(raw) != 32:
+                    print(fg.li_red + f"[!] Block {i} decoded {len(raw)}B, padding 0xFF to 32B" + fg.rs)
+                    raw = (raw + b"\xFF"*32)[:32]
+                else:
+                    print(fg.li_blue + bytes.hex(raw) + fg.rs)
+                buf.extend(raw)
+            else:
+                print(fg.li_red + f"[!] Block {i} read failed, filling with 0xFF" + fg.rs)
+                buf.extend(b"\xFF" * 32)
+    
+        expected = 512 * 1024    # 原来是 48 * 1024
+        if len(buf) != expected:
+            print(fg.li_red + f"[!] Size {len(buf)} != {expected}, fixing length" + fg.rs)
+            if len(buf) < expected:
+                buf.extend(b"\xFF" * (expected - len(buf)))
+            else:
+                buf = buf[:expected]
+    
+        with open(DUMP_FILE_BIN, "wb") as f:
+            f.write(buf)
+    
+        self._write_intel_hex(bytes(buf), DUMP_FILE_HEX, base_addr=0x0000, rec_len=16)
+    
+        print(fg.li_white + "[*] Wrote '{}' ({} bytes) and '{}'".format(
+            DUMP_FILE_BIN, len(buf), DUMP_FILE_HEX) + fg.rs)
 
     def run(self):
         """Run the glitching process with the current configuration"""
